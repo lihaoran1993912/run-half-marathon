@@ -12,6 +12,9 @@ import {
 } from './src/stats.js';
 import { createStore } from './src/store.js';
 import { backupDue } from './src/backup.js';
+import { parseSession } from './src/segments.js';
+import { stateAt, formatClock, frameCues } from './src/timer.js';
+import { createBeeper } from './src/audio.js';
 
 const store = createStore(window.localStorage);
 const $ = (id) => document.getElementById(id);
@@ -72,12 +75,14 @@ function render() {
       <div class="wc"><span>热身</span><span>${esc(s.warmup)}</span></div>
       <div class="wc"><span>放松</span><span>${esc(s.cooldown)}</span></div>
       <div class="focus"><b>教练的话：</b>${esc(s.focus)}</div>
+      <button class="btn ghost" id="startTimerBtn">▶ 开始计时</button>
       <div class="check-row">
         <input type="date" id="ciDate" value="${todayStr()}" max="${todayStr()}" aria-label="打卡日期">
         <button class="btn" id="ciBtn">完成打卡</button>
       </div>
       ${done > 0 ? '<button class="undo" id="undoBtn">↩ 撤销上一次打卡</button>' : ''}
     `;
+    $('startTimerBtn').onclick = () => openTimer(s);
     $('ciBtn').onclick = () => {
       $('ciBtn').disabled = true; // 防手抖连点两下多打一次
       const at = $('ciDate').value || todayStr();
@@ -188,6 +193,258 @@ function renderWeeks(state) {
     html += '</div>';
   }
   $('weeks').innerHTML = html;
+}
+
+// ── 跑步计时器 ────────────────────────────
+// 纯逻辑（解析、时间轴、时钟格式）在 src/segments.js + src/timer.js，有测试。
+// 这里是薄壳：墙上时间驱动的循环、提示音、屏幕常亮、DOM。
+const beeper = createBeeper();
+let T = null; // 当前计时会话；null = 没在计时
+
+function openTimer(session) {
+  const parsed = parseSession(session.detail);
+  T = {
+    session,
+    parsed,
+    segments: parsed.segments || [],
+    startMs: 0,
+    pausedAccumMs: 0,
+    pauseStartMs: 0,
+    running: false,
+    lastIndex: -1,
+    lastTick: -1,
+    raf: 0,
+    wakeLock: null,
+    bpm: 180,
+    metro: false,
+  };
+  $('timerCard').hidden = false;
+  renderTimer();
+  $('timerCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function closeTimer() {
+  stopClock();
+  releaseWake();
+  beeper.setMetronome(null);
+  T = null;
+  $('timerCard').hidden = true;
+}
+
+function elapsedSec() {
+  if (!T || !T.startMs) return 0;
+  const ref = T.running ? Date.now() : (T.pauseStartMs || Date.now());
+  return Math.max(0, (ref - T.startMs - T.pausedAccumMs) / 1000);
+}
+
+async function startClock() {
+  beeper.unlock(); // 必须在用户手势里
+  T.startMs = Date.now();
+  T.pausedAccumMs = 0;
+  T.pauseStartMs = 0;
+  T.running = true;
+  T.lastIndex = -1;
+  T.lastTick = -1;
+  await requestWake();
+  if (T.metro) beeper.setMetronome(T.bpm);
+  tickLoop();
+  renderTimer();
+}
+
+function pauseClock() {
+  if (!T || !T.running) return;
+  T.running = false;
+  T.pauseStartMs = Date.now();
+  cancelAnimationFrame(T.raf);
+  releaseWake();
+  beeper.setMetronome(null);
+  renderTimer();
+}
+
+function resumeClock() {
+  if (!T || T.running || !T.startMs) return;
+  T.pausedAccumMs += Date.now() - T.pauseStartMs;
+  T.pauseStartMs = 0;
+  T.running = true;
+  requestWake();
+  if (T.metro) beeper.setMetronome(T.bpm);
+  tickLoop();
+  renderTimer();
+}
+
+function stopClock() {
+  if (T) {
+    T.running = false;
+    cancelAnimationFrame(T.raf);
+  }
+}
+
+function tickLoop() {
+  if (!T || !T.running) return;
+  const e = elapsedSec();
+
+  if (T.parsed.type === 'freeform') {
+    paintFreeform(e);
+    T.raf = requestAnimationFrame(tickLoop);
+    return;
+  }
+
+  const st = stateAt(T.segments, e);
+  paintTimed(st);
+
+  const fc = frameCues({ index: T.lastIndex, tick: T.lastTick }, st);
+  for (const c of fc.cues) (c === 'tick' ? beeper.tick() : beeper.cue(c));
+  T.lastIndex = fc.index;
+  T.lastTick = fc.tick;
+
+  if (st.done) {
+    T.running = false;
+    releaseWake();
+    beeper.setMetronome(null);
+    renderTimer(true);
+    return;
+  }
+  T.raf = requestAnimationFrame(tickLoop);
+}
+
+async function requestWake() {
+  try {
+    if ('wakeLock' in navigator) T.wakeLock = await navigator.wakeLock.request('screen');
+  } catch { /* 电量低 / 不支持：算了 */ }
+}
+function releaseWake() {
+  try { if (T && T.wakeLock) T.wakeLock.release(); } catch { /* ignore */ }
+  if (T) T.wakeLock = null;
+}
+
+// 页面从后台回到前台：Wake Lock 会被系统释放，重新申请；循环也重新踢一下。
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && T && T.running) {
+    requestWake();
+    tickLoop();
+  }
+});
+
+function timerHeadHtml(finished) {
+  const s = T.session;
+  return `
+    <div class="t-head">
+      <span>第 ${s.seq} 次 · 第 ${s.week} 周 · ${esc(s.phase)}</span>
+      <button class="t-x" id="tCloseBtn" aria-label="关闭计时器">✕</button>
+    </div>
+    <div class="t-plan">${esc(s.detail)}</div>
+    ${finished ? '' : `<p class="t-note">iPhone 网页不支持震动，用提示音提醒。已尝试让屏幕保持常亮；锁屏放兜里时提示音可能延后。</p>`}
+  `;
+}
+
+function metroRowHtml() {
+  return `
+    <label class="t-metro">
+      <input type="checkbox" id="tMetroChk" ${T.metro ? 'checked' : ''}>
+      节拍音
+      <input type="range" id="tMetroBpm" min="165" max="190" step="5" value="${T.bpm}" ${T.metro ? '' : 'disabled'}>
+      <b id="tBpmLbl">${T.bpm}</b> 步/分
+    </label>`;
+}
+
+function renderTimer(finished) {
+  if (!T) return;
+  const started = !!T.startMs;
+  const card = $('timerCard');
+
+  if (T.parsed.type === 'freeform') {
+    card.innerHTML = timerHeadHtml(false) + `
+      <div class="t-phase">秒表</div>
+      <div class="t-clock" id="tClock">0:00</div>
+      <div class="t-sub">这次含按距离 / 自定义组间休息的部分，不自动循环，照上面计划来，这里当秒表用。</div>
+      ${metroRowHtml()}
+      <div class="t-ctrls">
+        ${!started || !T.running
+          ? `<button class="btn" id="tStartBtn">${started ? '继续' : '开始'}</button>`
+          : `<button class="btn ghost" id="tPauseBtn">暂停</button>`}
+        <button class="btn ghost" id="tStopBtn">结束</button>
+      </div>`;
+    if (started) paintFreeform(elapsedSec());
+    wireTimerCtrls(finished);
+    return;
+  }
+
+  card.innerHTML = timerHeadHtml(finished) + `
+    <div class="t-phase" id="tPhase">${started ? '' : '预备'}</div>
+    <div class="t-clock" id="tClock">${started ? '' : formatClock(T.segments[0].sec)}</div>
+    <div class="t-sub" id="tSub"></div>
+    <div class="bar"><i id="tBar" style="width:0%"></i></div>
+    ${finished ? `
+      <div class="t-done">✅ 这次训练完成！</div>
+      <div class="t-ctrls">
+        <button class="btn" id="tCheckinBtn">顺手打卡</button>
+        <button class="btn ghost" id="tStopBtn">关闭</button>
+      </div>`
+    : `
+      ${metroRowHtml()}
+      <div class="t-ctrls">
+        ${!T.running
+          ? `<button class="btn" id="tStartBtn">${started ? '继续' : '开始'}</button>`
+          : `<button class="btn ghost" id="tPauseBtn">暂停</button>`}
+        <button class="btn ghost" id="tStopBtn">结束</button>
+      </div>`}
+  `;
+  if (started && !finished) paintTimed(stateAt(T.segments, elapsedSec()));
+  wireTimerCtrls(finished);
+}
+
+function paintTimed(st) {
+  const phase = $('tPhase');
+  if (!phase) return;
+  if (st.done) {
+    phase.textContent = '完成';
+    $('tClock').textContent = '0:00';
+    return;
+  }
+  phase.textContent = st.kind === 'walk' ? '走' : '跑';
+  phase.className = 't-phase ' + (st.kind === 'walk' ? 'walk' : 'run');
+  $('tClock').textContent = formatClock(st.segRemaining);
+  const sub = $('tSub');
+  if (T.parsed.type === 'runwalk') {
+    const pair = Math.floor(st.index / 2) + 1;
+    sub.textContent = `第 ${pair} / ${T.parsed.reps} 组 · 总剩 ${formatClock(st.totalRemaining)}`;
+  } else {
+    sub.textContent = `总剩 ${formatClock(st.totalRemaining)}`;
+  }
+  $('tBar').style.width = (st.total ? (st.totalElapsed / st.total) * 100 : 0) + '%';
+}
+
+function paintFreeform(e) {
+  const c = $('tClock');
+  if (c) c.textContent = formatClock(Math.floor(e));
+}
+
+function wireTimerCtrls(finished) {
+  const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+  on('tCloseBtn', closeTimer);
+  on('tStopBtn', closeTimer);
+  on('tStartBtn', () => (T.startMs ? resumeClock() : startClock()));
+  on('tPauseBtn', pauseClock);
+  on('tCheckinBtn', () => {
+    const at = todayStr();
+    store.checkIn(nextSession(PLAN, store.get()).seq, at);
+    closeTimer();
+    render();
+    toast('已打卡 ✓');
+  });
+  const chk = $('tMetroChk');
+  if (chk) chk.onchange = () => {
+    T.metro = chk.checked;
+    $('tMetroBpm').disabled = !T.metro;
+    beeper.setMetronome(T.metro && T.running ? T.bpm : null);
+  };
+  const bpm = $('tMetroBpm');
+  if (bpm) bpm.oninput = () => {
+    T.bpm = Number(bpm.value);
+    $('tBpmLbl').textContent = T.bpm;
+    if (T.metro && T.running) beeper.setMetronome(T.bpm);
+  };
+  void finished;
 }
 
 // ── 备份工具 ──────────────────────────────
