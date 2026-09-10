@@ -7,6 +7,7 @@
   "scripts": {
     "test": "node --test",
     "test:watch": "node --test --watch",
-    "serve": "node serve.js"
+    "serve": "node serve.js",
+    "build:preview": "node build-preview.js"
   }
 }
