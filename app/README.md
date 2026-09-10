@@ -39,14 +39,18 @@ npm run serve       # http://localhost:8000 本地预览
 改动流程：先写 / 改 `test/` 里的用例（红）→ 改实现到通过（绿）→ 重构 → `git commit`。
 改了前端任意文件，记得把 `sw.js` 里的 `CACHE` 版本号 +1，否则手机上不会更新。
 
-## 发布到 GitHub Pages（正式版，能装能离线）
+## 线上地址
 
-1. 在 GitHub 新建仓库（比如 `run-half-marathon`），按它给的命令把本仓库 push 上去。
-2. 仓库 **Settings → Pages → Build and deployment → Source 选 “Deploy from a branch”**，
-   分支选 `master`、目录选 `/ (root)`，保存。
-3. 等一两分钟，打开 `https://<你的用户名>.github.io/run-half-marathon/app/`
-4. iPhone Safari 打开这个地址 → 分享按钮 → **添加到主屏幕**。
-   第一次要联 WiFi 打开一次（缓存整包），之后断网也能用。
+**<https://lihaoran1993912.github.io/run-half-marathon/app/>**
+
+iPhone Safari 打开 → 分享按钮 → **添加到主屏幕**。第一次联 WiFi 打开一次（缓存整包），之后断网也能用。
+
+### 已经是怎么发布的（以后自己维护参考）
+
+- 仓库：`gh repo create run-half-marathon --public --source=. --remote=origin --push`
+- 开 Pages：`gh api -X POST repos/lihaoran1993912/run-half-marathon/pages -f "source[branch]=master" -f "source[path]=/"`
+- 以后改了代码：`git add -A && git commit -m "..." && git push`，等一两分钟 Pages 自动重建。
+  改了前端文件记得先把 `sw.js` 里的 `CACHE` 版本号 +1，手机上才会拿到新版。
 
 ## 兜底：单文件版
 

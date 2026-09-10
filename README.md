@@ -7,6 +7,9 @@
 `app/` —— 一个手机网页 App。**5 个月 / 20 周 / 63 次训练**（来自「得到 App」计划表），
 逐次打卡。按顺序完成即可，忙了就顺延，把 63 次做完就算达标。
 
+**打开地址**：<https://lihaoran1993912.github.io/run-half-marathon/app/>
+（iPhone Safari 打开 → 添加到主屏幕，当 App 用）
+
 - 打卡记录只存手机本机，无账号、无服务器、断网也能用
 - 加到 iPhone 主屏幕后当原生 App 用；不引任何外部 CDN，国行 iPhone 也能秒开
 - 拆成 `src/` 纯逻辑 + `test/` 测试（Node 内置测试，零依赖），`app.js` 只做渲染
