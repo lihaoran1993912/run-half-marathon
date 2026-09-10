@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createStore, STORAGE_KEY } from '../src/store.js';
+import { createStore, STORAGE_KEY, BACKUP_KEY } from '../src/store.js';
 
 // 内存版 localStorage 替身
 function fakeStorage(seed = {}) {
@@ -87,6 +87,42 @@ test('exportJson / importJson 往返', () => {
   const restored = createStore(fakeStorage());
   restored.importJson(backup);
   assert.deepEqual(restored.get().checkins, store.get().checkins);
+});
+
+test('exportJson 带版本号和时间戳', () => {
+  const store = createStore(fakeStorage());
+  store.checkIn(1, '2026-09-10');
+  const blob = JSON.parse(store.exportJson());
+  assert.equal(blob.app, 'marathon-checkin');
+  assert.equal(blob.version, 1);
+  assert.match(blob.exportedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.deepEqual(blob.checkins, [{ seq: 1, at: '2026-09-10' }]);
+});
+
+test('importJson 兼容旧版裸 {checkins} 格式', () => {
+  const store = createStore(fakeStorage());
+  store.importJson('{"checkins":[{"seq":3,"at":"2026-09-15"}]}');
+  assert.deepEqual(store.get().checkins, [{ seq: 3, at: '2026-09-15' }]);
+});
+
+test('markBackedUp 记下书签（打卡数 + 日期），并落盘', () => {
+  const storage = fakeStorage();
+  const store = createStore(storage);
+  store.checkIn(1, '2026-09-10');
+  store.checkIn(2, '2026-09-12');
+  const snap = store.markBackedUp('2026-09-12');
+  assert.deepEqual(snap.backup, { at: '2026-09-12', count: 2 });
+  // 新建 store（模拟刷新）应读回同样的书签
+  assert.deepEqual(createStore(storage).get().backup, { at: '2026-09-12', count: 2 });
+});
+
+test('全新 store 的备份书签是空的', () => {
+  assert.deepEqual(createStore(fakeStorage()).get().backup, { at: null, count: 0 });
+});
+
+test('备份书签是坏数据时安全退回空书签', () => {
+  assert.deepEqual(createStore(fakeStorage({ [BACKUP_KEY]: 'xxx' })).get().backup, { at: null, count: 0 });
+  assert.deepEqual(createStore(fakeStorage({ [BACKUP_KEY]: '{"at":9,"count":"z"}' })).get().backup, { at: null, count: 0 });
 });
 
 test('importJson 遇到非法内容抛错，且不改动原状态', () => {

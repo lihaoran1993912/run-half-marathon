@@ -87,6 +87,36 @@ a { color: var(--clay); }
 }
 .bar-label b { color: var(--ink); font-variant-numeric: tabular-nums; }
 
+/* ── 备份提醒条 ───────────────────────── */
+.nudge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff3e6;
+  border: 1px solid #f0c9a0;
+  color: #8a4b1d;
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+@media (prefers-color-scheme: dark) {
+  .nudge { background: #3a2b1c; border-color: #5a4126; color: #e8b98a; }
+}
+.nudge span { flex: 1; }
+.nudge-btn {
+  flex: none;
+  border: none;
+  background: var(--clay);
+  color: #fff;
+  font-weight: 700;
+  font-size: 12.5px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
 /* ── 卡片 ─────────────────────────────── */
 .card {
   background: var(--card);

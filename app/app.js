@@ -11,6 +11,7 @@ import {
   checkinsInLastDays, avgPerWeek,
 } from './src/stats.js';
 import { createStore } from './src/store.js';
+import { backupDue } from './src/backup.js';
 
 const store = createStore(window.localStorage);
 const $ = (id) => document.getElementById(id);
@@ -106,7 +107,50 @@ function render() {
   `;
 
   renderRecent(state);
+  renderBackup(state);
   renderWeeks(state);
+}
+
+function renderBackup(state) {
+  const b = state.backup || { at: null, count: 0 };
+  $('backupStatus').textContent = b.at
+    ? `上次备份：${fmtDate(b.at)}（当时 ${b.count} 次）`
+    : '还没备份过';
+
+  const due = backupDue(state, todayStr());
+  const nudge = $('backupNudge');
+  if (due.due) {
+    $('backupNudgeText').textContent = `有 ${due.pending} 次打卡还没备份，存一份免得丢`;
+    nudge.hidden = false;
+  } else {
+    nudge.hidden = true;
+  }
+}
+
+// 打开分享面板保存备份；不支持分享就退回复制 / 选中。成功后记下备份书签。
+async function saveBackup() {
+  const text = store.exportJson();
+  $('backupBox').value = text;
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: '半马打卡备份', text });
+      toast('已发起保存');
+      store.markBackedUp(todayStr());
+      render();
+      return;
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return; // 用户取消，不算备份
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('已复制备份文本，粘到备忘录里存好');
+  } catch {
+    $('backupBox').select();
+    toast('已选中备份文本，请长按复制保存');
+  }
+  store.markBackedUp(todayStr());
+  render();
 }
 
 function renderRecent(state) {
@@ -148,20 +192,10 @@ function renderWeeks(state) {
 
 // ── 备份工具 ──────────────────────────────
 function wireTools() {
-  $('exportBtn').onclick = () => {
-    $('backupBox').value = store.exportJson();
-    toast('已生成备份文本，长按可全选复制');
-  };
-  $('copyBtn').onclick = async () => {
-    const text = store.exportJson();
-    $('backupBox').value = text;
-    try {
-      await navigator.clipboard.writeText(text);
-      toast('已复制到剪贴板');
-    } catch {
-      $('backupBox').select();
-      toast('已选中，请手动复制');
-    }
+  $('saveBtn').onclick = saveBackup;
+  $('backupNudgeBtn').onclick = () => {
+    $('toolsBox').open = true;
+    saveBackup();
   };
   $('importBtn').onclick = () => {
     const text = $('backupBox').value.trim();
@@ -175,7 +209,7 @@ function wireTools() {
     }
   };
   $('resetBtn').onclick = () => {
-    if (confirm('确定清空所有打卡记录？建议先导出备份。')) {
+    if (confirm('确定清空所有打卡记录？建议先「保存备份」。')) {
       store.reset();
       render();
       toast('已清空');
