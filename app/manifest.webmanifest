@@ -1,0 +1,17 @@
+{
+  "name": "半马训练打卡",
+  "short_name": "半马打卡",
+  "description": "5 个月 / 20 周 / 63 次训练，按顺序打卡，忙了顺延，完成总量即达标。",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f5f6f8",
+  "theme_color": "#cf5f2b",
+  "icons": [
+    { "src": "icons/apple-touch-icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
