@@ -44,6 +44,29 @@ export function weekProgress(plan, state) {
   return { week, done, total: inWeek.length };
 }
 
+// 给计划里每一次训练加上状态：done（是否完成）、at（完成日期，未完成为 null）、isNext（是不是下一课）。
+// 顺延模型下 checkins[i] 恰好对应 plan[i]，直接按下标配。
+export function annotatePlan(plan, state) {
+  const done = state.checkins.length;
+  return plan.map((s, i) => ({
+    ...s,
+    done: i < done,
+    at: i < done ? state.checkins[i].at : null,
+    isNext: i === done,
+  }));
+}
+
+// 最近完成的 n 次，最新在前。每项带上计划里的信息 + 完成日期。
+export function recentCheckins(plan, state, n = 5) {
+  const done = state.checkins.length;
+  const out = [];
+  for (let i = done - 1; i >= 0 && out.length < n; i--) {
+    const s = plan[i] || {};
+    out.push({ seq: s.seq ?? state.checkins[i].seq, week: s.week ?? null, detail: s.detail ?? '', at: state.checkins[i].at });
+  }
+  return out;
+}
+
 // 按「最近的实际打卡节奏」外推完成日期。数据不足或已完成时返回 null。
 export function estimateFinishDate(plan, state, today) {
   const done = state.checkins.length;

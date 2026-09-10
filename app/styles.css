@@ -186,6 +186,20 @@ input[type="date"] {
 .stat .n { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .stat .k { font-size: 12px; color: var(--ink-faint); margin-top: 1px; }
 
+/* ── 最近完成 ─────────────────────────── */
+.rc {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+.rc:first-of-type { border-top: none; }
+.rc-date { flex: none; width: 42px; color: var(--clay-dark); font-weight: 700; font-variant-numeric: tabular-nums; }
+.rc-txt { flex: none; color: var(--ink-faint); }
+.rc-detail { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* ── 全部计划 ─────────────────────────── */
 details.plan { margin-bottom: 14px; }
 details.plan > summary {
@@ -221,6 +235,13 @@ details.plan[open] > summary::after { content: " ▴"; }
   align-items: baseline;
 }
 .wk h3 .r { font-size: 11px; color: #1f7a45; font-weight: 600; }
+.wk-note {
+  padding: 0 14px 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-faint);
+  background: var(--card);
+}
 .sess {
   display: flex;
   gap: 10px;
@@ -234,7 +255,9 @@ details.plan[open] > summary::after { content: " ▴"; }
 .sess.now { background: var(--clay-soft); }
 .sess.now .mark { color: var(--clay-dark); }
 .sess .d { flex: none; color: var(--ink-faint); width: 62px; }
+.sess .t { flex: 1; }
 .sess.done .t { color: var(--ink-faint); text-decoration: line-through; }
+.sess .at { flex: none; color: var(--ok); font-size: 12px; font-variant-numeric: tabular-nums; }
 
 /* ── 备份 ─────────────────────────────── */
 details.tools > summary {

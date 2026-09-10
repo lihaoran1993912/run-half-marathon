@@ -9,6 +9,8 @@ import {
   currentWeek,
   weekProgress,
   estimateFinishDate,
+  annotatePlan,
+  recentCheckins,
 } from '../src/progress.js';
 
 // 一个小计划：3 周，每周 2 次，共 6 次。
@@ -80,4 +82,37 @@ test('estimateFinishDate：按实际节奏外推', () => {
 
 test('estimateFinishDate：全部完成后返回 null', () => {
   assert.equal(estimateFinishDate(plan, state(1, 2, 3, 4, 5, 6), '2026-10-01'), null);
+});
+
+test('annotatePlan：给每次训练标 done / at / isNext', () => {
+  const ann = annotatePlan(plan, state(1, 2));
+  assert.equal(ann.length, plan.length);
+  assert.equal(ann[0].done, true);
+  assert.equal(ann[0].at, '2026-09-10');
+  assert.equal(ann[1].done, true);
+  assert.equal(ann[1].at, '2026-09-11');
+  assert.equal(ann[2].done, false);
+  assert.equal(ann[2].at, null);
+  assert.equal(ann[2].isNext, true);
+  assert.equal(ann[3].isNext, false);
+  assert.equal(ann[0].detail, plan[0].detail); // 其余字段透传
+});
+
+test('annotatePlan：全部完成后没有 isNext', () => {
+  const ann = annotatePlan(plan, state(1, 2, 3, 4, 5, 6));
+  assert.equal(ann.every((s) => s.done), true);
+  assert.equal(ann.some((s) => s.isNext), false);
+});
+
+test('recentCheckins：最新在前，带日期和计划信息', () => {
+  const r = recentCheckins(plan, state(1, 2, 3, 4), 2);
+  assert.equal(r.length, 2);
+  assert.equal(r[0].seq, 4);
+  assert.equal(r[0].at, '2026-09-13');
+  assert.equal(r[0].detail, plan[3].detail);
+  assert.equal(r[1].seq, 3);
+});
+
+test('recentCheckins：没打卡时返回空数组', () => {
+  assert.deepEqual(recentCheckins(plan, state(), 5), []);
 });

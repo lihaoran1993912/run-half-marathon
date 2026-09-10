@@ -202,6 +202,20 @@ input[type="date"] {
 .stat .n { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .stat .k { font-size: 12px; color: var(--ink-faint); margin-top: 1px; }
 
+/* ── 最近完成 ─────────────────────────── */
+.rc {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+.rc:first-of-type { border-top: none; }
+.rc-date { flex: none; width: 42px; color: var(--clay-dark); font-weight: 700; font-variant-numeric: tabular-nums; }
+.rc-txt { flex: none; color: var(--ink-faint); }
+.rc-detail { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* ── 全部计划 ─────────────────────────── */
 details.plan { margin-bottom: 14px; }
 details.plan > summary {
@@ -237,6 +251,13 @@ details.plan[open] > summary::after { content: " ▴"; }
   align-items: baseline;
 }
 .wk h3 .r { font-size: 11px; color: #1f7a45; font-weight: 600; }
+.wk-note {
+  padding: 0 14px 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-faint);
+  background: var(--card);
+}
 .sess {
   display: flex;
   gap: 10px;
@@ -250,7 +271,9 @@ details.plan[open] > summary::after { content: " ▴"; }
 .sess.now { background: var(--clay-soft); }
 .sess.now .mark { color: var(--clay-dark); }
 .sess .d { flex: none; color: var(--ink-faint); width: 62px; }
+.sess .t { flex: 1; }
 .sess.done .t { color: var(--ink-faint); text-decoration: line-through; }
+.sess .at { flex: none; color: var(--ok); font-size: 12px; font-variant-numeric: tabular-nums; }
 
 /* ── 备份 ─────────────────────────────── */
 details.tools > summary {
@@ -322,6 +345,8 @@ textarea {
 <section class="card" id="nextCard"></section>
 
 <section class="stats" id="stats"></section>
+
+<section class="card" id="recentCard" hidden></section>
 
 <details class="plan">
   <summary>全部计划（20 周）</summary>
@@ -637,6 +662,29 @@ function weekProgress(plan, state) {
   return { week, done, total: inWeek.length };
 }
 
+// 给计划里每一次训练加上状态：done（是否完成）、at（完成日期，未完成为 null）、isNext（是不是下一课）。
+// 顺延模型下 checkins[i] 恰好对应 plan[i]，直接按下标配。
+function annotatePlan(plan, state) {
+  const done = state.checkins.length;
+  return plan.map((s, i) => ({
+    ...s,
+    done: i < done,
+    at: i < done ? state.checkins[i].at : null,
+    isNext: i === done,
+  }));
+}
+
+// 最近完成的 n 次，最新在前。每项带上计划里的信息 + 完成日期。
+function recentCheckins(plan, state, n = 5) {
+  const done = state.checkins.length;
+  const out = [];
+  for (let i = done - 1; i >= 0 && out.length < n; i--) {
+    const s = plan[i] || {};
+    out.push({ seq: s.seq ?? state.checkins[i].seq, week: s.week ?? null, detail: s.detail ?? '', at: state.checkins[i].at });
+  }
+  return out;
+}
+
 // 按「最近的实际打卡节奏」外推完成日期。数据不足或已完成时返回 null。
 function estimateFinishDate(plan, state, today) {
   const done = state.checkins.length;
@@ -656,7 +704,7 @@ function estimateFinishDate(plan, state, today) {
   return finish.toISOString().slice(0, 10);
 }
 
-return { doneCount, nextSession, isComplete, progressPercent, currentWeek, weekProgress, estimateFinishDate };
+return { doneCount, nextSession, isComplete, progressPercent, currentWeek, weekProgress, annotatePlan, recentCheckins, estimateFinishDate };
 })();
 
 /* ===== src/stats.js ===== */
@@ -811,7 +859,7 @@ return { STORAGE_KEY, createStore };
 const { PLAN, TOTAL_SESSIONS, TOTAL_WEEKS } = __plan;
 const {
   nextSession, isComplete, progressPercent, doneCount,
-  weekProgress, estimateFinishDate,
+  weekProgress, estimateFinishDate, annotatePlan, recentCheckins,
 } = __progress;
 const {
   completedRunMinutes, totalRunMinutes,
@@ -827,6 +875,14 @@ function fmtDate(s) {
   const [y, m, d] = s.split('-');
   return `${y}年${+m}月${+d}日`;
 }
+
+function fmtShort(s) {
+  if (!s) return '';
+  const [, m, d] = s.split('-');
+  return `${+m}/${+d}`;
+}
+
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
 function toast(msg) {
   const t = $('toast');
@@ -864,18 +920,19 @@ function render() {
         <span class="tag plain">第 ${s.week} / ${TOTAL_WEEKS} 周（本周 ${wp.done}/${wp.total}）</span>
         ${s.recovery ? '<span class="tag rest">减量 / 恢复</span>' : ''}
       </div>
-      <div class="next-head">接下来 · 第 ${s.seq} 次（计划里标注为 ${s.day}）</div>
-      <div class="next-detail">${s.detail}</div>
-      <div class="wc"><span>热身</span><span>${s.warmup}</span></div>
-      <div class="wc"><span>放松</span><span>${s.cooldown}</span></div>
-      <div class="focus"><b>教练的话：</b>${s.focus}</div>
+      <div class="next-head">接下来 · 第 ${s.seq} 次（计划里标注为 ${esc(s.day)}）</div>
+      <div class="next-detail">${esc(s.detail)}</div>
+      <div class="wc"><span>热身</span><span>${esc(s.warmup)}</span></div>
+      <div class="wc"><span>放松</span><span>${esc(s.cooldown)}</span></div>
+      <div class="focus"><b>教练的话：</b>${esc(s.focus)}</div>
       <div class="check-row">
-        <input type="date" id="ciDate" value="${todayStr()}" max="${todayStr()}">
+        <input type="date" id="ciDate" value="${todayStr()}" max="${todayStr()}" aria-label="打卡日期">
         <button class="btn" id="ciBtn">完成打卡</button>
       </div>
       ${done > 0 ? '<button class="undo" id="undoBtn">↩ 撤销上一次打卡</button>' : ''}
     `;
     $('ciBtn').onclick = () => {
+      $('ciBtn').disabled = true; // 防手抖连点两下多打一次
       const at = $('ciDate').value || todayStr();
       store.checkIn(nextSession(PLAN, store.get()).seq, at);
       render();
@@ -902,23 +959,40 @@ function render() {
     <div class="stat"><div class="n" style="font-size:14px;font-weight:600">${finish ? fmtDate(finish) : '再打几次卡'}</div><div class="k">按当前节奏预计完成</div></div>
   `;
 
+  renderRecent(state);
   renderWeeks(state);
 }
 
+function renderRecent(state) {
+  const list = recentCheckins(PLAN, state, 5);
+  const card = $('recentCard');
+  if (list.length === 0) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  card.innerHTML = `<div class="next-head">最近完成</div>` + list.map((r) => `
+    <div class="rc">
+      <span class="rc-date">${fmtShort(r.at)}</span>
+      <span class="rc-txt">第 ${r.seq} 次 · 第 ${r.week} 周</span>
+      <span class="rc-detail">${esc(r.detail)}</span>
+    </div>`).join('');
+}
+
 function renderWeeks(state) {
-  const done = doneCount(state);
+  const ann = annotatePlan(PLAN, state);
   let html = '';
   for (let wk = 1; wk <= TOTAL_WEEKS; wk++) {
-    const inWeek = PLAN.filter((s) => s.week === wk);
-    const rec = inWeek[0].recovery;
-    html += `<div class="wk"><h3>第 ${wk} 周 · 第 ${inWeek[0].month} 月 ${inWeek[0].phase}${rec ? ' <span class="r">减量</span>' : ''}</h3>`;
+    const inWeek = ann.filter((s) => s.week === wk);
+    const head = inWeek[0];
+    html += `<div class="wk"><h3>第 ${wk} 周 · 第 ${head.month} 月 ${esc(head.phase)}${head.recovery ? ' <span class="r">减量</span>' : ''}</h3>`;
+    html += `<div class="wk-note">${esc(head.focus)}</div>`;
     for (const s of inWeek) {
-      const isDone = s.seq <= done;
-      const isNow = s.seq === done + 1;
-      html += `<div class="sess ${isDone ? 'done' : ''} ${isNow ? 'now' : ''}">
-        <span class="mark">${isDone ? '✓' : isNow ? '→' : '·'}</span>
-        <span class="d">${s.day}</span>
-        <span class="t">${s.detail}</span>
+      html += `<div class="sess ${s.done ? 'done' : ''} ${s.isNext ? 'now' : ''}">
+        <span class="mark">${s.done ? '✓' : s.isNext ? '→' : '·'}</span>
+        <span class="d">${esc(s.day)}</span>
+        <span class="t">${esc(s.detail)}</span>
+        <span class="at">${s.at ? fmtShort(s.at) : ''}</span>
       </div>`;
     }
     html += '</div>';
