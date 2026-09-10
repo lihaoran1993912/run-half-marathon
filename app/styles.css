@@ -272,7 +272,10 @@ input[type="date"] {
 .t-metro input[type="range"] { flex: 1; min-width: 120px; max-width: 200px; accent-color: var(--clay); }
 .t-metro b { font-variant-numeric: tabular-nums; color: var(--ink); }
 .t-ctrls { display: flex; gap: 10px; }
-.t-ctrls .btn { margin: 0; }
+/* .btn.ghost 默认是 width:100% + flex:none，放进这个 flex 行会各占满一行、把「结束」挤出卡片。
+   在计时器控制行里强制等分。 */
+.t-ctrls .btn,
+.t-ctrls .btn.ghost { margin: 0; flex: 1 1 0; width: auto; min-width: 0; }
 
 .undo {
   display: inline-block;

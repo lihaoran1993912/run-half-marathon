@@ -13,7 +13,7 @@ import {
 import { createStore } from './src/store.js';
 import { backupDue } from './src/backup.js';
 import { parseSession } from './src/segments.js';
-import { stateAt, formatClock, frameCues } from './src/timer.js';
+import { stateAt, formatClock, frameCues, elapsedFrom } from './src/timer.js';
 import { createBeeper } from './src/audio.js';
 
 const store = createStore(window.localStorage);
@@ -233,9 +233,7 @@ function closeTimer() {
 }
 
 function elapsedSec() {
-  if (!T || !T.startMs) return 0;
-  const ref = T.running ? Date.now() : (T.pauseStartMs || Date.now());
-  return Math.max(0, (ref - T.startMs - T.pausedAccumMs) / 1000);
+  return elapsedFrom(T, Date.now());
 }
 
 async function startClock() {
@@ -333,6 +331,7 @@ function releaseWake() {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && T && T.running) {
     requestWake();
+    if (T.metro) beeper.setMetronome(T.bpm); // 后台会挂起音频，重新起节拍器
     startLoop(); // 新一代循环；后台冻结的旧帧回来发现代号变了会自己退出
   }
 });

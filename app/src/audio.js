@@ -7,6 +7,8 @@
 //   'done' 全部结束      —— 三声长音
 //   tick() 段末最后 3 秒每秒一声短促「嘀」
 
+import { metroTimes } from './timer.js';
+
 export function createBeeper() {
   let ctx = null;
   let metroTimer = 0;
@@ -73,13 +75,19 @@ export function createBeeper() {
     tone(1320, c.currentTime + 0.01, 0.05, 0.15);
   }
 
-  // 节拍器：25ms 轮询，把未来 0.15s 内的「哒」排到音频时钟上（标准 Web Audio 做法，稳）。
+  // 节拍器：25ms 轮询，把未来 0.15s 内的「哒」排到音频时钟上（标准 Web Audio 做法）。
+  // iOS 上 AudioContext 可能还没 resume（gesture 后 resume 是异步的）、或被系统 interrupt，
+  // 这时 currentTime 不走。所以每次轮询都：没 running 就重试 resume 并跳过；
+  // metroNext 惰性/落后时按「当前时间」重新起步，绝不排到过去（排过去会被丢掉 → 听起来「不响」）。
   function scheduleMetro() {
     if (!ctx) return;
-    while (metroNext < ctx.currentTime + 0.15) {
-      tone(2000, metroNext, 0.03, 0.09);
-      metroNext += metroInterval;
+    if (ctx.state !== 'running') {
+      ctx.resume && ctx.resume().catch(() => {});
+      return;
     }
+    const { times, next } = metroTimes(ctx.currentTime, metroNext, metroInterval);
+    for (const t of times) tone(2000, t, 0.03, 0.09);
+    metroNext = next;
   }
 
   function setMetronome(bpm) {
@@ -87,9 +95,9 @@ export function createBeeper() {
     metroTimer = 0;
     const c = ensure();
     if (!bpm || !c) return;
-    if (c.state === 'suspended') c.resume().catch(() => {});
+    if (c.state !== 'running') c.resume().catch(() => {});
     metroInterval = 60 / bpm;
-    metroNext = c.currentTime + 0.1;
+    metroNext = 0; // 让第一次轮询用当时的 currentTime 初始化
     metroTimer = setInterval(scheduleMetro, 25);
   }
 

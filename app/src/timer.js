@@ -79,3 +79,29 @@ export function formatClock(sec) {
   const r = s % 60;
   return `${m}:${String(r).padStart(2, '0')}`;
 }
+
+// 节拍器：这一轮该把「哒」排在哪几个音频时刻。纯函数，方便测。
+//   now: audioCtx.currentTime
+//   nextScheduled: 上一轮排到的下一个时刻（0 / 负 / 落后于 now 都表示要重新起步）
+//   interval: 每拍秒数（60 / bpm）
+//   horizon: 向前预排多少秒
+// 返回 { times: number[], next: number }。绝不把时刻排到 now 之前（排过去的会被丢，听起来「不响」）。
+export function metroTimes(now, nextScheduled, interval, horizon = 0.15) {
+  let t = (!nextScheduled || nextScheduled < now) ? now + 0.06 : nextScheduled;
+  const times = [];
+  while (t < now + horizon) {
+    times.push(t);
+    t += interval;
+  }
+  return { times, next: t };
+}
+
+// 计时会话「已过秒数」。把暂停/继续的时间账目单独拎出来测。
+//   sess: { startMs, pausedAccumMs, pauseStartMs, running }
+//   nowMs: 当前 Date.now()
+// 运行中按 now 算；暂停中冻结在 pauseStartMs；没开始是 0。
+export function elapsedFrom(sess, nowMs) {
+  if (!sess || !sess.startMs) return 0;
+  const ref = sess.running ? nowMs : (sess.pauseStartMs || nowMs);
+  return Math.max(0, (ref - sess.startMs - (sess.pausedAccumMs || 0)) / 1000);
+}
