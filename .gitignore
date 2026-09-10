@@ -9,6 +9,9 @@ desktop.ini
 *.swp
 *~
 
+# Node（app/ 目前零依赖，这行是防以后 npm install 把依赖塞进版本库）
+node_modules/
+
 # Office 临时文件
 ~$*
 

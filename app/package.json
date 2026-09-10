@@ -1,0 +1,12 @@
+{
+  "name": "marathon-checkin",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "半马训练打卡 —— 5 个月 / 20 周 / 63 次训练，按顺序打卡，忙了顺延，完成总量即达标。",
+  "scripts": {
+    "test": "node --test",
+    "test:watch": "node --test --watch",
+    "serve": "node serve.js"
+  }
+}
