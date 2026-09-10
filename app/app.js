@@ -214,6 +214,7 @@ function openTimer(session) {
     lastIndex: -1,
     lastTick: -1,
     raf: 0,
+    gen: 0, // 每次 (重新)启动循环 +1；旧的一代自己退出，避免后台回来后循环叠加
     wakeLock: null,
     bpm: 180,
     metro: false,
@@ -247,13 +248,14 @@ async function startClock() {
   T.lastTick = -1;
   await requestWake();
   if (T.metro) beeper.setMetronome(T.bpm);
-  tickLoop();
+  startLoop();
   renderTimer();
 }
 
 function pauseClock() {
   if (!T || !T.running) return;
   T.running = false;
+  T.gen += 1; // 让当前循环这一代作废
   T.pauseStartMs = Date.now();
   cancelAnimationFrame(T.raf);
   releaseWake();
@@ -268,24 +270,35 @@ function resumeClock() {
   T.running = true;
   requestWake();
   if (T.metro) beeper.setMetronome(T.bpm);
-  tickLoop();
+  startLoop();
   renderTimer();
 }
 
 function stopClock() {
   if (T) {
     T.running = false;
+    T.gen += 1;
     cancelAnimationFrame(T.raf);
   }
 }
 
-function tickLoop() {
+// 启动新一代帧循环；上一代（如果还在）下一帧会自己发现代号变了而退出。
+function startLoop() {
+  const gen = ++T.gen;
+  const frame = () => {
+    if (!T || !T.running || gen !== T.gen) return;
+    tickFrame();
+    if (T && T.running && gen === T.gen) T.raf = requestAnimationFrame(frame);
+  };
+  frame();
+}
+
+function tickFrame() {
   if (!T || !T.running) return;
   const e = elapsedSec();
 
   if (T.parsed.type === 'freeform') {
     paintFreeform(e);
-    T.raf = requestAnimationFrame(tickLoop);
     return;
   }
 
@@ -299,12 +312,11 @@ function tickLoop() {
 
   if (st.done) {
     T.running = false;
+    T.gen += 1;
     releaseWake();
     beeper.setMetronome(null);
     renderTimer(true);
-    return;
   }
-  T.raf = requestAnimationFrame(tickLoop);
 }
 
 async function requestWake() {
@@ -321,7 +333,7 @@ function releaseWake() {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && T && T.running) {
     requestWake();
-    tickLoop();
+    startLoop(); // 新一代循环；后台冻结的旧帧回来发现代号变了会自己退出
   }
 });
 
