@@ -1,4 +1,5 @@
-// 提示音 + 节拍器。Web Audio，纯副作用，没法做单元测试，靠手动测。
+// 提示音 + 节拍器。Web Audio，真的出声这件事没法做单元测试，靠手动测；
+// 但「该不该现在排音、打断后该不该补播」这层判断逻辑用假 AudioContext 测了，见 test/audio.test.js。
 // iPhone 要求音频在「用户手势」里首次启动，所以 unlock() 必须在按钮点击回调里调一次。
 //
 // cue 种类：
@@ -42,37 +43,52 @@ export function createBeeper() {
     osc.stop(at + dur + 0.02);
   }
 
+  // 手表读秒/合环提示这类系统通知会抢走音频，ctx.state 变成 'suspended' 或
+  // iOS 专有的 'interrupted'（两者都不是 'running'）。这时绝不能照抄旧的 currentTime
+  // 硬排音符——resume() 是异步的，排的时刻会被判定为「过去」，直接被丢掉、听起来像没响。
+  // 正确做法：running 就立刻排；不是就等 resume() 真正落地、且这期间没被 close() 拆掉再排。
+  // （节拍器 scheduleMetro 靠 25ms 轮询自带这个效果，这里给一次性提示音补上同样的保护。）
+  function whenRunning(c, fn) {
+    if (c.state === 'running') {
+      fn();
+      return;
+    }
+    c.resume().then(() => {
+      if (ctx === c && c.state === 'running') fn();
+    }).catch(() => {});
+  }
+
   function unlock() {
     const c = ensure();
     if (!c) return;
-    if (c.state === 'suspended') c.resume().catch(() => {});
     // 播一个几乎无声的极短音，解锁 iOS 音频
-    tone(440, c.currentTime + 0.001, 0.03, 0.0002);
+    whenRunning(c, () => tone(440, c.currentTime + 0.001, 0.03, 0.0002));
   }
 
   function cue(kind) {
     const c = ensure();
     if (!c) return;
-    if (c.state === 'suspended') c.resume().catch(() => {});
-    const t = c.currentTime + 0.02;
-    if (kind === 'walk') {
-      tone(523, t, 0.16, 0.25);
-      tone(392, t + 0.18, 0.22, 0.25);
-    } else if (kind === 'done') {
-      tone(880, t, 0.22, 0.3);
-      tone(880, t + 0.28, 0.22, 0.3);
-      tone(880, t + 0.56, 0.4, 0.3);
-    } else {
-      tone(660, t, 0.1, 0.22);
-      tone(880, t + 0.12, 0.1, 0.22);
-      tone(1046, t + 0.24, 0.16, 0.24);
-    }
+    whenRunning(c, () => {
+      const t = c.currentTime + 0.02;
+      if (kind === 'walk') {
+        tone(523, t, 0.16, 0.25);
+        tone(392, t + 0.18, 0.22, 0.25);
+      } else if (kind === 'done') {
+        tone(880, t, 0.22, 0.3);
+        tone(880, t + 0.28, 0.22, 0.3);
+        tone(880, t + 0.56, 0.4, 0.3);
+      } else {
+        tone(660, t, 0.1, 0.22);
+        tone(880, t + 0.12, 0.1, 0.22);
+        tone(1046, t + 0.24, 0.16, 0.24);
+      }
+    });
   }
 
   function tick() {
     const c = ensure();
     if (!c) return;
-    tone(1320, c.currentTime + 0.01, 0.05, 0.15);
+    whenRunning(c, () => tone(1320, c.currentTime + 0.01, 0.05, 0.15));
   }
 
   // 节拍器：25ms 轮询，把未来 0.15s 内的「哒」排到音频时钟上（标准 Web Audio 做法）。

@@ -3,7 +3,7 @@
 // 更新套路：改了任何前端文件，就把下面的版本号 +1（v3 -> v4）。
 // 新 SW 装好后会删掉旧缓存，下次打开就是新版。
 
-const CACHE = 'marathon-checkin-v4';
+const CACHE = 'marathon-checkin-v5';
 
 const ASSETS = [
   './',
@@ -15,6 +15,10 @@ const ASSETS = [
   './src/progress.js',
   './src/stats.js',
   './src/store.js',
+  './src/segments.js',
+  './src/timer.js',
+  './src/audio.js',
+  './src/backup.js',
   './icons/apple-touch-icon-180.png',
   './icons/icon-512.png',
 ];
