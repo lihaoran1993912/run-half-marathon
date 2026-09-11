@@ -15,6 +15,7 @@ import { backupDue } from './src/backup.js';
 import { parseSession } from './src/segments.js';
 import { stateAt, formatClock, frameCues, elapsedFrom } from './src/timer.js';
 import { createBeeper } from './src/audio.js';
+import { VERSION, BUILT_AT } from './src/version.js';
 
 const store = createStore(window.localStorage);
 const $ = (id) => document.getElementById(id);
@@ -486,6 +487,7 @@ function wireTools() {
 }
 
 // ── 启动 ──────────────────────────────
+$('verFoot').textContent = `${VERSION} · ${BUILT_AT}`;
 render();
 wireTools();
 

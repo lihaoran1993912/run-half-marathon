@@ -5,7 +5,10 @@
 // 正式版仍然是拆开的那套（带离线缓存），这个只是预览 / 兜底。
 //
 // 做法：每个被 import 的模块包成一个 IIFE，返回它导出的东西；
-// app.js 里的 import 改写成从这些 IIFE 结果里解构。够小、够直白，方便回头看。
+// 谁 import 谁（不管是 app.js 引 src/xxx.js，还是 src 模块内部互相引用，
+// 比如 audio.js 引 timer.js）都改写成从这些 IIFE 结果里解构。
+// LIBS 的顺序有讲究：被引用的模块必须排在引用它的模块前面（timer.js 在 audio.js 之前），
+// 因为顶层 const 是按文本顺序执行的。
 
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -13,8 +16,21 @@ import { fileURLToPath } from 'node:url';
 const dir = fileURLToPath(new URL('.', import.meta.url));
 const read = (p) => readFile(dir + p, 'utf8');
 
-const LIBS = ['src/plan.js', 'src/progress.js', 'src/stats.js', 'src/store.js'];
+// 有依赖关系的必须按「被依赖的在前」排：segments/timer 不依赖别人；
+// audio 依赖 timer，排在它后面。
+const LIBS = [
+  'src/plan.js', 'src/progress.js', 'src/stats.js', 'src/store.js',
+  'src/segments.js', 'src/timer.js', 'src/audio.js', 'src/backup.js', 'src/version.js',
+];
 const nsOf = (path) => '__' + path.replace(/.*\//, '').replace('.js', '');
+
+// 把「import { a, b } from './xxx.js'」或「from './src/xxx.js'」统一改写成
+// 「const { a, b } = __xxx;」——前一种是 app.js 引 src 模块的写法，后一种是
+// src 模块互相引用的写法（比如 audio.js 引 timer.js），两种都可能出现。
+function rewriteImports(code) {
+  return code.replace(/^\s*import\s*\{([^}]+)\}\s*from\s*'\.\/(?:src\/)?([A-Za-z0-9_]+)\.js';\s*$/gm,
+    (_, names, mod) => `const {${names}} = __${mod};`);
+}
 
 function exportedNames(code) {
   const names = new Set();
@@ -27,7 +43,7 @@ function exportedNames(code) {
 
 function wrapLib(path, code) {
   const names = exportedNames(code);
-  const body = code
+  const body = rewriteImports(code)
     .replace(/^\s*export\s+(?=(?:const|function|let|var|class)\b)/gm, '')
     .replace(/^\s*export\s*\{[^}]*\};?\s*$/gm, '');
   return `const ${nsOf(path)} = (() => {\n${body}\nreturn { ${names.join(', ')} };\n})();\n`;
@@ -36,10 +52,7 @@ function wrapLib(path, code) {
 let bundle = '';
 for (const p of LIBS) bundle += `\n/* ===== ${p} ===== */\n` + wrapLib(p, await read(p));
 
-let app = await read('app.js');
-app = app
-  .replace(/^import\s*\{([^}]+)\}\s*from\s*'\.\/(src\/[a-z]+)\.js';\s*$/gm,
-    (_, names, path) => `const {${names}} = ${nsOf(path + '.js')};`)
+let app = rewriteImports(await read('app.js'))
   .replace(/if \('serviceWorker' in navigator\)[\s\S]*?\n\}\n?/, ''); // 预览版没有 SW
 bundle += `\n/* ===== app.js ===== */\n` + app;
 

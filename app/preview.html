@@ -442,6 +442,7 @@ textarea {
 .toast.show { opacity: 0.94; }
 
 .foot { text-align: center; font-size: 11.5px; color: var(--ink-faint); margin-top: 18px; }
+.foot.ver { margin-top: 2px; opacity: 0.7; }
 
 </style>
 </head>
@@ -487,6 +488,7 @@ textarea {
 </details>
 
 <div class="foot">数据全部保存在本机 · 无账号 · 无网络也能打卡</div>
+<div class="foot ver" id="verFoot"></div>
 <div class="toast" id="toast"></div>
 
 <script type="module">
@@ -1010,10 +1012,350 @@ function createStore(storage) {
 return { STORAGE_KEY, BACKUP_KEY, EXPORT_VERSION, createStore };
 })();
 
+/* ===== src/segments.js ===== */
+const __segments = (() => {
+// 把一次训练的文字（plan.js 里的 detail）解析成「能自动计时的段落」。
+//
+// 只有两种情形能干净地自动计时：
+//   runwalk —— （X跑 a 分钟 + Y走 b 分钟）× n     （走跑结合，跑和走都写死了时间）
+//   single  —— 单段「…… c 分钟」的连续跑
+// 其它（节奏跑/间歇跑的组间休息计划只写了「1—2 分钟」没定死、200 米按距离、
+// 按公里、比赛日）一律 freeform：计时器不自动跑，让用户照文字来 / 当秒表用。
+
+const RUNWALK = /^（\s*(.+?)\s*(\d+)\s*分钟\s*\+\s*(.+?)\s*(\d+)\s*分钟\s*）\s*×\s*(\d+)\s*$/;
+const SINGLE = /^([^（）×→]+?)\s*(\d+)\s*分钟\s*$/;
+
+function kindOf(label) {
+  if (/走/.test(label)) return 'walk';
+  return 'run';
+}
+function parseSession(detail) {
+  const text = String(detail).trim();
+
+  const rw = text.match(RUNWALK);
+  if (rw) {
+    const work = { label: rw[1].trim(), kind: kindOf(rw[1]), sec: Number(rw[2]) * 60 };
+    const rest = { label: rw[3].trim(), kind: kindOf(rw[3]), sec: Number(rw[4]) * 60 };
+    const reps = Number(rw[5]);
+    const segments = [];
+    for (let i = 0; i < reps; i++) segments.push({ ...work }, { ...rest });
+    return { type: 'runwalk', reps, work, rest, segments };
+  }
+
+  const sg = text.match(SINGLE);
+  if (sg) {
+    return {
+      type: 'single',
+      segments: [{ label: sg[1].trim(), kind: kindOf(sg[1]), sec: Number(sg[2]) * 60 }],
+    };
+  }
+
+  return { type: 'freeform', reason: '含按距离 / 自定义组间休息 / 比赛日的部分，不适合自动计时' };
+}
+
+return { parseSession };
+})();
+
+/* ===== src/timer.js ===== */
+const __timer = (() => {
+// 计时器的时间轴计算 —— 纯函数。
+// 按「墙上时间」算：外面只管把 elapsed（开跑到现在的秒数）传进来，
+// 这里算出「现在是第几段、这段还剩多少、总共还剩多少」。
+// 页面被 iOS 挂起再回来时，elapsed 会直接跳到正确值，stateAt 立刻给出正确段落。
+function buildTimeline(segments) {
+  const bounds = [];
+  let acc = 0;
+  for (const s of segments) {
+    acc += s.sec;
+    bounds.push(acc);
+  }
+  return { bounds, total: acc };
+}
+function stateAt(segments, elapsed) {
+  const { bounds, total } = buildTimeline(segments);
+  const e = Math.min(Math.max(elapsed, 0), total);
+
+  if (e >= total) {
+    return {
+      done: true,
+      index: segments.length,
+      label: '',
+      kind: '',
+      segRemaining: 0,
+      segTotal: 0,
+      totalElapsed: total,
+      totalRemaining: 0,
+      total,
+    };
+  }
+
+  let index = 0;
+  while (index < bounds.length && e >= bounds[index]) index += 1;
+
+  const seg = segments[index];
+  const segStart = index === 0 ? 0 : bounds[index - 1];
+
+  return {
+    done: false,
+    index,
+    label: seg.label,
+    kind: seg.kind,
+    segRemaining: bounds[index] - e,
+    segTotal: seg.sec,
+    totalElapsed: e,
+    totalRemaining: total - e,
+    total,
+  };
+}
+
+// 这一帧要发哪些提示音。把「段落切换 / 段末读秒」的判断从 UI 里拎出来单独测。
+//   prev: { index, tick }  上一帧记录（初始 index=-1 表示还没画过）
+//   st:   stateAt(...) 的结果
+// 返回 { cues: ['run'|'walk'|'done'|'tick', ...], index, tick } —— index/tick 存回去给下一帧用。
+function frameCues(prev, st) {
+  const out = { cues: [], index: st.index, tick: prev.tick };
+
+  if (st.index !== prev.index && prev.index !== -1) {
+    out.cues.push(st.done ? 'done' : st.kind === 'walk' ? 'walk' : 'run');
+  }
+
+  if (!st.done) {
+    const r = Math.ceil(st.segRemaining);
+    if (r >= 1 && r <= 3 && r !== prev.tick) {
+      out.cues.push('tick');
+      out.tick = r;
+    }
+    if (r > 3) out.tick = -1;
+  }
+
+  return out;
+}
+function formatClock(sec) {
+  const s = Math.max(0, Math.ceil(sec));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, '0')}`;
+}
+
+// 节拍器：这一轮该把「哒」排在哪几个音频时刻。纯函数，方便测。
+//   now: audioCtx.currentTime
+//   nextScheduled: 上一轮排到的下一个时刻（0 / 负 / 落后于 now 都表示要重新起步）
+//   interval: 每拍秒数（60 / bpm）
+//   horizon: 向前预排多少秒
+// 返回 { times: number[], next: number }。绝不把时刻排到 now 之前（排过去的会被丢，听起来「不响」）。
+function metroTimes(now, nextScheduled, interval, horizon = 0.15) {
+  let t = (!nextScheduled || nextScheduled < now) ? now + 0.06 : nextScheduled;
+  const times = [];
+  while (t < now + horizon) {
+    times.push(t);
+    t += interval;
+  }
+  return { times, next: t };
+}
+
+// 计时会话「已过秒数」。把暂停/继续的时间账目单独拎出来测。
+//   sess: { startMs, pausedAccumMs, pauseStartMs, running }
+//   nowMs: 当前 Date.now()
+// 运行中按 now 算；暂停中冻结在 pauseStartMs；没开始是 0。
+function elapsedFrom(sess, nowMs) {
+  if (!sess || !sess.startMs) return 0;
+  const ref = sess.running ? nowMs : (sess.pauseStartMs || nowMs);
+  return Math.max(0, (ref - sess.startMs - (sess.pausedAccumMs || 0)) / 1000);
+}
+
+return { buildTimeline, stateAt, frameCues, formatClock, metroTimes, elapsedFrom };
+})();
+
+/* ===== src/audio.js ===== */
+const __audio = (() => {
+// 提示音 + 节拍器。Web Audio，真的出声这件事没法做单元测试，靠手动测；
+// 但「该不该现在排音、打断后该不该补播」这层判断逻辑用假 AudioContext 测了，见 test/audio.test.js。
+// iPhone 要求音频在「用户手势」里首次启动，所以 unlock() 必须在按钮点击回调里调一次。
+//
+// cue 种类：
+//   'run'  进入「跑」段 —— 三声上行
+//   'walk' 进入「走」段 —— 两声下行
+//   'done' 全部结束      —— 三声长音
+//   tick() 段末最后 3 秒每秒一声短促「嘀」
+const { metroTimes } = __timer;
+function createBeeper() {
+  let ctx = null;
+  let metroTimer = 0;
+  let metroNext = 0;
+  let metroInterval = 0;
+
+  function ensure() {
+    if (ctx) return ctx;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      ctx = new AC();
+    } catch {
+      ctx = null;
+    }
+    return ctx;
+  }
+
+  function tone(freq, at, dur, gain) {
+    if (!ctx) return;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(gain, at + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    osc.connect(g);
+    g.connect(ctx.destination);
+    osc.start(at);
+    osc.stop(at + dur + 0.02);
+  }
+
+  // 手表读秒/合环提示这类系统通知会抢走音频，ctx.state 变成 'suspended' 或
+  // iOS 专有的 'interrupted'（两者都不是 'running'）。这时绝不能照抄旧的 currentTime
+  // 硬排音符——resume() 是异步的，排的时刻会被判定为「过去」，直接被丢掉、听起来像没响。
+  // 正确做法：running 就立刻排；不是就等 resume() 真正落地、且这期间没被 close() 拆掉再排。
+  // （节拍器 scheduleMetro 靠 25ms 轮询自带这个效果，这里给一次性提示音补上同样的保护。）
+  function whenRunning(c, fn) {
+    if (c.state === 'running') {
+      fn();
+      return;
+    }
+    c.resume().then(() => {
+      if (ctx === c && c.state === 'running') fn();
+    }).catch(() => {});
+  }
+
+  function unlock() {
+    const c = ensure();
+    if (!c) return;
+    // 播一个几乎无声的极短音，解锁 iOS 音频
+    whenRunning(c, () => tone(440, c.currentTime + 0.001, 0.03, 0.0002));
+  }
+
+  function cue(kind) {
+    const c = ensure();
+    if (!c) return;
+    whenRunning(c, () => {
+      const t = c.currentTime + 0.02;
+      if (kind === 'walk') {
+        tone(523, t, 0.16, 0.25);
+        tone(392, t + 0.18, 0.22, 0.25);
+      } else if (kind === 'done') {
+        tone(880, t, 0.22, 0.3);
+        tone(880, t + 0.28, 0.22, 0.3);
+        tone(880, t + 0.56, 0.4, 0.3);
+      } else {
+        tone(660, t, 0.1, 0.22);
+        tone(880, t + 0.12, 0.1, 0.22);
+        tone(1046, t + 0.24, 0.16, 0.24);
+      }
+    });
+  }
+
+  function tick() {
+    const c = ensure();
+    if (!c) return;
+    whenRunning(c, () => tone(1320, c.currentTime + 0.01, 0.05, 0.15));
+  }
+
+  // 节拍器：25ms 轮询，把未来 0.15s 内的「哒」排到音频时钟上（标准 Web Audio 做法）。
+  // iOS 上 AudioContext 可能还没 resume（gesture 后 resume 是异步的）、或被系统 interrupt，
+  // 这时 currentTime 不走。所以每次轮询都：没 running 就重试 resume 并跳过；
+  // metroNext 惰性/落后时按「当前时间」重新起步，绝不排到过去（排过去会被丢掉 → 听起来「不响」）。
+  function scheduleMetro() {
+    if (!ctx) return;
+    if (ctx.state !== 'running') {
+      ctx.resume && ctx.resume().catch(() => {});
+      return;
+    }
+    const { times, next } = metroTimes(ctx.currentTime, metroNext, metroInterval);
+    for (const t of times) tone(2000, t, 0.03, 0.09);
+    metroNext = next;
+  }
+
+  function setMetronome(bpm) {
+    clearInterval(metroTimer);
+    metroTimer = 0;
+    const c = ensure();
+    if (!bpm || !c) return;
+    if (c.state !== 'running') c.resume().catch(() => {});
+    metroInterval = 60 / bpm;
+    metroNext = 0; // 让第一次轮询用当时的 currentTime 初始化
+    metroTimer = setInterval(scheduleMetro, 25);
+  }
+
+  function close() {
+    clearInterval(metroTimer);
+    metroTimer = 0;
+    try { ctx && ctx.close(); } catch { /* ignore */ }
+    ctx = null;
+  }
+
+  return { unlock, cue, tick, setMetronome, close };
+}
+
+return { createBeeper };
+})();
+
+/* ===== src/backup.js ===== */
+const __backup = (() => {
+// 「该备份了吗」的判断 —— 纯函数。
+// 输入 store.get() 的快照（含 checkins 和 backup 书签）和今天日期。
+
+const MS_PER_DAY = 86400000;
+
+// 距上次备份，新增了多少次打卡还没备份。
+function unbackedUpCount(snapshot) {
+  const done = snapshot.checkins.length;
+  const backedUp = (snapshot.backup && snapshot.backup.count) || 0;
+  return Math.max(0, done - backedUp);
+}
+
+// 距上次备份过了多少天；从没备份过返回 Infinity。
+function daysSinceBackup(snapshot, today) {
+  const at = snapshot.backup && snapshot.backup.at;
+  if (!at) return Infinity;
+  return Math.floor((new Date(today) - new Date(at)) / MS_PER_DAY);
+}
+
+// 该不该弹「去备份」提示。
+// 规则：有没备份的打卡，且（累计到阈值次数，或距上次备份够久）。
+// 「距上次备份够久」只在确实备份过至少一次后才算数——从没备份过就单看次数，避免刚上手就被唠叨。
+function backupDue(snapshot, today, opts = {}) {
+  const everyCheckins = opts.everyCheckins ?? 6;
+  const everyDays = opts.everyDays ?? 14;
+
+  const pending = unbackedUpCount(snapshot);
+  if (pending === 0) return { due: false, pending: 0, reason: '' };
+
+  if (pending >= everyCheckins) return { due: true, pending, reason: 'count' };
+
+  const days = daysSinceBackup(snapshot, today);
+  if (days !== Infinity && days >= everyDays) return { due: true, pending, reason: 'days' };
+
+  return { due: false, pending, reason: '' };
+}
+
+return { unbackedUpCount, daysSinceBackup, backupDue };
+})();
+
+/* ===== src/version.js ===== */
+const __version = (() => {
+// 页面底部显示这个，方便联网刷新后确认拿到的是不是最新代码。
+//
+// 每次改完前端代码、准备发布时，两件事一起做（缺一个 test/version.test.js 就会报红）：
+//   1. 这里的 VERSION 往上 +1、BUILT_AT 改成今天
+//   2. sw.js 里的 CACHE 常量也要跟着改成同一个数字（否则 Service Worker 不认为有更新）
+const VERSION = 'v6';
+const BUILT_AT = '2026-09-11';
+
+return { VERSION, BUILT_AT };
+})();
+
 /* ===== app.js ===== */
 // 浏览器入口。这里只做两件事：把数据渲染成页面、把点击接到 store 上。
 // 所有「算」的逻辑都在 src/ 里，并且有测试；这个文件故意保持薄。
-
 const { PLAN, TOTAL_SESSIONS, TOTAL_WEEKS } = __plan;
 const {
   nextSession, isComplete, progressPercent, doneCount,
@@ -1028,6 +1370,7 @@ const { backupDue } = __backup;
 const { parseSession } = __segments;
 const { stateAt, formatClock, frameCues, elapsedFrom } = __timer;
 const { createBeeper } = __audio;
+const { VERSION, BUILT_AT } = __version;
 const store = createStore(window.localStorage);
 const $ = (id) => document.getElementById(id);
 const todayStr = () => new Date().toLocaleDateString('sv-SE'); // 'YYYY-MM-DD' 本地时区
@@ -1498,6 +1841,7 @@ function wireTools() {
 }
 
 // ── 启动 ──────────────────────────────
+$('verFoot').textContent = `${VERSION} · ${BUILT_AT}`;
 render();
 wireTools();
 
