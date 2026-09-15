@@ -219,6 +219,7 @@ function openTimer(session) {
     wakeLock: null,
     bpm: 180,
     metro: false,
+    audioStuckAt: 0,
   };
   $('timerCard').hidden = false;
   renderTimer();
@@ -231,6 +232,24 @@ function closeTimer() {
   beeper.setMetronome(null);
   T = null;
   $('timerCard').hidden = true;
+}
+
+// 提示音有没有卡住的探针，每帧查一下 beeper 的状态。系统打断（手表读秒、耳机的
+// "当前锻炼圆环已合上"）结束后，自动 resume() 理论上会自愈；但真机上出现过自动
+// resume() 一直等不到系统把音频还回来的情况（第三次真实跑步反馈）——这时只能提示
+// 用户手动点一下，靠一次真实的点击手势把音频救回来。卡住要持续 3 秒才提示，避免
+// 打断一开始的正常瞬间就报警。
+function checkAudioHealth() {
+  const el = $('tAudioWarn');
+  if (!el) return;
+  const wantsAudio = T.metro || T.parsed.type !== 'freeform';
+  if (!wantsAudio || beeper.isHealthy()) {
+    T.audioStuckAt = 0;
+    el.hidden = true;
+    return;
+  }
+  if (!T.audioStuckAt) T.audioStuckAt = Date.now();
+  el.hidden = Date.now() - T.audioStuckAt < 3000;
 }
 
 function elapsedSec() {
@@ -259,6 +278,7 @@ function pauseClock() {
   cancelAnimationFrame(T.raf);
   releaseWake();
   beeper.setMetronome(null);
+  T.audioStuckAt = 0;
   renderTimer();
 }
 
@@ -294,6 +314,7 @@ function startLoop() {
 
 function tickFrame() {
   if (!T || !T.running) return;
+  checkAudioHealth();
   const e = elapsedSec();
 
   if (T.parsed.type === 'freeform') {
@@ -359,6 +380,14 @@ function metroRowHtml() {
     </label>`;
 }
 
+function audioWarnHtml() {
+  return `
+    <div class="nudge" id="tAudioWarn" hidden>
+      <span>提示音好像被打断后没恢复（比如手表读秒、耳机的锻炼提示）</span>
+      <button class="nudge-btn" id="tAudioResumeBtn">恢复提示音</button>
+    </div>`;
+}
+
 function renderTimer(finished) {
   if (!T) return;
   const started = !!T.startMs;
@@ -370,6 +399,7 @@ function renderTimer(finished) {
       <div class="t-clock" id="tClock">0:00</div>
       <div class="t-sub">这次含按距离 / 自定义组间休息的部分，不自动循环，照上面计划来，这里当秒表用。</div>
       ${metroRowHtml()}
+      ${audioWarnHtml()}
       <div class="t-ctrls">
         ${!started || !T.running
           ? `<button class="btn" id="tStartBtn">${started ? '继续' : '开始'}</button>`
@@ -394,6 +424,7 @@ function renderTimer(finished) {
       </div>`
     : `
       ${metroRowHtml()}
+      ${audioWarnHtml()}
       <div class="t-ctrls">
         ${!T.running
           ? `<button class="btn" id="tStartBtn">${started ? '继续' : '开始'}</button>`
@@ -443,6 +474,13 @@ function wireTimerCtrls(finished) {
     closeTimer();
     render();
     toast('已打卡 ✓');
+  });
+  on('tAudioResumeBtn', () => {
+    beeper.manualResume(); // 必须直接在这个点击回调里调用，靠这次真实手势把音频救回来
+    if (T.metro && T.running) beeper.setMetronome(T.bpm); // 重新排节拍器
+    T.audioStuckAt = 0;
+    $('tAudioWarn').hidden = true;
+    toast('已尝试恢复提示音');
   });
   const chk = $('tMetroChk');
   if (chk) chk.onchange = () => {

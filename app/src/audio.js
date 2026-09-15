@@ -124,5 +124,26 @@ export function createBeeper() {
     ctx = null;
   }
 
-  return { unlock, cue, tick, setMetronome, close };
+  // 給 app.js 的「卡住了吗」探针：没在用（还没建 ctx）算健康；建了但不是 running
+  // （suspended / iOS 的 interrupted）算不健康。scheduleMetro/whenRunning 的自动
+  // resume() 重试理论上会自愈，但手表/耳机某些打断会让自动 resume() 永远等不到
+  // resolve（这不是能在网页这层证实的系统行为，只能靠现象兜底）——这时只能靠用户
+  // 真的点一下 manualResume() 来救。
+  function isHealthy() {
+    return !ctx || ctx.state === 'running';
+  }
+
+  // 手动恢复：不指望卡住的旧 ctx 的 resume() 还会 resolve，直接整个拆了重建。
+  // 这次 new AudioContext() 是在按钮点击这个真实用户手势里发生的，iOS 上新建的
+  // context 在手势里会直接是 running（跟 unlock() 依赖的是同一条规则）。
+  // 节拍器要不要重新排是 app.js 的事（它知道 bpm/是否该开），这里只管把 ctx 救活
+  // 并给用户一声确认音。
+  function manualResume() {
+    close();
+    const c = ensure();
+    if (!c) return;
+    whenRunning(c, () => tone(880, c.currentTime + 0.01, 0.15, 0.25));
+  }
+
+  return { unlock, cue, tick, setMetronome, close, isHealthy, manualResume };
 }

@@ -4,7 +4,7 @@
 // 新 SW 装好后会删掉旧缓存，下次打开就是新版。
 
 // CACHE 的版本号数字要跟 src/version.js 的 VERSION 保持一致（test/version.test.js 会检查）。
-const CACHE = 'marathon-checkin-v6';
+const CACHE = 'marathon-checkin-v7';
 
 const ASSETS = [
   './',

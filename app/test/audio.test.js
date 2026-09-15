@@ -120,3 +120,30 @@ test('cue()：resume 还没完成时用户就结束了计时（close），不该
   await tick();
   assert.equal(ctx.log.length, 0, '页面已经关闭计时，不该再往旧 ctx 补播音，否则可能报错/内存泄漏');
 });
+
+// ── 第三次真实跑步反馈：自动 resume() 有时永远等不到 resolve，自愈失败 ──
+// （比如手表读秒/合环提示 + 耳机蓝牙路由切换叠在一起），这时需要用户手动点一下恢复。
+
+test('isHealthy()：running 时健康，interrupted/suspended 时不健康', async () => {
+  const { beeper, ctx } = await freshBeeper();
+  assert.equal(beeper.isHealthy(), true);
+  ctx.state = 'interrupted';
+  assert.equal(beeper.isHealthy(), false);
+  ctx.state = 'suspended';
+  assert.equal(beeper.isHealthy(), false);
+});
+
+test('manualResume()：旧 ctx 卡死（resume 永不 resolve）时，应该换一个新的、马上健康的 ctx，而不是干等', async () => {
+  const { beeper, ctx: oldCtx } = await freshBeeper();
+  oldCtx.state = 'interrupted'; // 模拟卡死：接下来永远不调 completeResume()
+  assert.equal(beeper.isHealthy(), false);
+
+  beeper.manualResume();
+  await tick();
+
+  assert.equal(FakeAudioContext.instances.length, 2, '应该新建了一个 ctx，而不是死等旧的');
+  const newCtx = FakeAudioContext.instances.at(-1);
+  assert.notEqual(newCtx, oldCtx);
+  assert.equal(beeper.isHealthy(), true, '新 ctx 在用户手势里创建，应该直接是 running');
+  assert.ok(newCtx.log.length > 0, '应该给用户放一声确认音');
+});
