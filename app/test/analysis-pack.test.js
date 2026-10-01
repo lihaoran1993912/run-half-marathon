@@ -107,3 +107,35 @@ test('buildPack：63 次全部完成时不再写「下一次」', () => {
   assert.match(text, /63 次已全部完成/);
   assert.doesNotMatch(text, /下一次/);
 });
+
+// ── 海拔 + 疼痛 ────────────────────────
+
+test('buildPack：填了常住海拔就写上；高海拔提醒心率偏高', () => {
+  const text = buildPack({ plan: PLAN, state: { checkins: checkins(1) }, profile: { ...PROFILE, altitudeM: 2270 }, scope: 'all', today: '2026-09-30' });
+  assert.match(text, /常住海拔：约 2270 米/);
+  assert.match(text, /高海拔.*心率/);
+});
+
+test('buildPack：低海拔不出高海拔提醒；没填写「未填」', () => {
+  const low = buildPack({ plan: PLAN, state: { checkins: checkins(1) }, profile: { ...PROFILE, altitudeM: 50 }, scope: 'all', today: '2026-09-30' });
+  assert.match(low, /常住海拔：约 50 米/);
+  assert.doesNotMatch(low, /高海拔/);
+  const none = buildPack({ plan: PLAN, state: { checkins: checkins(1) }, profile: PROFILE, scope: 'all', today: '2026-09-30' });
+  assert.match(none, /常住海拔：未填/);
+});
+
+test('buildPack：疼痛单独一行，排在备注前', () => {
+  const cs = checkins(1);
+  cs[0].run = { avgHr: 136, painScore: 3, painArea: '左膝外侧', note: '隐隐的' };
+  const text = buildPack({ plan: PLAN, state: { checkins: cs }, profile: PROFILE, scope: 'all', today: '2026-09-30' });
+  assert.match(text, /- 疼痛：左膝外侧 3\/10\n- 备注：隐隐的/);
+});
+
+test('buildPack：选中的记录里有疼痛 > 0，分析要求里点名先看疼痛', () => {
+  const cs = checkins(2);
+  cs[1].run = { painScore: 2, painArea: '左膝' };
+  const text = buildPack({ plan: PLAN, state: { checkins: cs }, profile: PROFILE, scope: 'all', today: '2026-09-30' });
+  assert.match(text, /有疼痛记录.*优先/);
+  const clean = buildPack({ plan: PLAN, state: { checkins: checkins(2) }, profile: PROFILE, scope: 'all', today: '2026-09-30' });
+  assert.doesNotMatch(clean, /有疼痛记录/);
+});

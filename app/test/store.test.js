@@ -216,3 +216,14 @@ test('导入旧备份（没有 profile）时，保留本机已有的个人信息
   store.importJson(JSON.stringify({ checkins: [{ seq: 1, at: '2026-09-10' }] }));
   assert.deepEqual(store.get().profile, { age: 33 });
 });
+
+test('疼痛字段存进去、读回来、随备份走', () => {
+  const a = createStore(fakeStorage());
+  a.checkIn(1, '2026-09-10');
+  a.setRun(0, { avgHr: 136, painScore: 3, painArea: '左膝外侧' });
+  a.setProfile({ age: 33, altitudeM: 2270 });
+  const b = createStore(fakeStorage());
+  b.importJson(a.exportJson());
+  assert.deepEqual(b.get().checkins[0].run, { avgHr: 136, painScore: 3, painArea: '左膝外侧' });
+  assert.equal(b.get().profile.altitudeM, 2270);
+});

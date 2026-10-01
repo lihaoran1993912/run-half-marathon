@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   formToRun, sanitizeRun, runToForm,
-  paceSecPerKm, formatPace, formatDuration, runSummary,
+  paceSecPerKm, formatPace, formatDuration, runSummary, painText,
 } from '../src/runlog.js';
 
-const blank = { distKm: '', durMin: '', durSec: '', avgHr: '', maxHr: '', cadence: '', rpe: '', note: '' };
+const blank = { distKm: '', durMin: '', durSec: '', avgHr: '', maxHr: '', cadence: '', rpe: '', painScore: '', painArea: '', note: '' };
 const form = (o) => ({ ...blank, ...o });
 
 test('formToRun：7 项都填，得到一条完整记录', () => {
@@ -93,7 +93,7 @@ test('sanitizeRun：最高心率低于平均心率时丢掉最高心率', () => 
 });
 
 test('runToForm ↔ formToRun 来回一趟不变（编辑时回填表单）', () => {
-  const run = { distKm: 5.2, durationSec: 2125, avgHr: 145, maxHr: 158, cadence: 172, rpe: 3, note: '风大' };
+  const run = { distKm: 5.2, durationSec: 2125, avgHr: 145, maxHr: 158, cadence: 172, rpe: 3, painScore: 2, painArea: '左膝外侧', note: '风大' };
   const f = runToForm(run);
   assert.equal(f.durMin, '35');
   assert.equal(f.durSec, '25');
@@ -122,4 +122,45 @@ test('runSummary：一行摘要，只列填了的项', () => {
   );
   assert.equal(runSummary({ avgHr: 150 }), '平均心率 150');
   assert.equal(runSummary(null), '');
+});
+
+// ── 疼痛（部位 + 0–10 分）────────────────────────
+
+test('formToRun：疼痛分数 + 部位', () => {
+  const r = formToRun(form({ painScore: '3', painArea: ' 左膝外侧，跑到第 15 分钟开始 ' }));
+  assert.deepEqual(r, { run: { painScore: 3, painArea: '左膝外侧，跑到第 15 分钟开始' }, errors: [] });
+});
+
+test('formToRun：疼痛 0 分是合法的（= 不疼）', () => {
+  assert.equal(formToRun(form({ painScore: '0' })).run.painScore, 0);
+});
+
+test('formToRun：疼痛分数超范围 / 小数 → 报错', () => {
+  for (const v of ['11', '-1', '2.5']) {
+    const r = formToRun(form({ painScore: v }));
+    assert.equal(r.run, null, v);
+    assert.match(r.errors[0], /疼痛/, v);
+  }
+});
+
+test('formToRun：疼痛部位截到 60 字', () => {
+  assert.equal(formToRun(form({ painArea: '膝'.repeat(100) })).run.painArea.length, 60);
+});
+
+test('sanitizeRun：疼痛字段能读回，坏的丢掉', () => {
+  assert.deepEqual(sanitizeRun({ painScore: 3, painArea: '左膝' }), { painScore: 3, painArea: '左膝' });
+  assert.deepEqual(sanitizeRun({ painScore: 12, painArea: 5 }), null);
+});
+
+test('painText：部位 + 分数；只有一个也行；不疼 / 没填为空', () => {
+  assert.equal(painText({ painScore: 3, painArea: '左膝外侧' }), '左膝外侧 3/10');
+  assert.equal(painText({ painScore: 3 }), '3/10（部位未填）');
+  assert.equal(painText({ painArea: '左膝' }), '左膝（分数未填）');
+  assert.equal(painText({ painScore: 0 }), '不疼（0/10）');
+  assert.equal(painText({}), '');
+  assert.equal(painText(null), '');
+});
+
+test('runSummary 不含疼痛（疼痛单独一行显示）', () => {
+  assert.equal(runSummary({ avgHr: 150, painScore: 3, painArea: '左膝' }), '平均心率 150');
 });

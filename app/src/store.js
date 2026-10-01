@@ -4,7 +4,7 @@
 // 主数据很小：{ checkins: [{ seq, at, run? }], profile }
 //   seq     —— 计划里的第几次训练（1 起）
 //   at      —— 打卡日期 'YYYY-MM-DD'
-//   run     —— 这次的实际跑步数据（可选，形状见 runlog.js）
+//   run     —— 这次的实际跑步数据，含疼痛（可选，形状见 runlog.js）
 //   profile —— 个人基本信息（形状见 profile.js），清空打卡时保留
 //
 // 另存一份「上次备份」的书签（设备本地，不进导出内容）：

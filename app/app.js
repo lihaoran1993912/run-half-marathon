@@ -16,7 +16,7 @@ import { parseSession } from './src/segments.js';
 import { stateAt, formatClock, frameCues, elapsedFrom } from './src/timer.js';
 import { createBeeper } from './src/audio.js';
 import { VERSION, BUILT_AT } from './src/version.js';
-import { formToRun, runToForm, runSummary } from './src/runlog.js';
+import { formToRun, runToForm, runSummary, painText } from './src/runlog.js';
 import { formToProfile, profileToForm } from './src/profile.js';
 import { buildPack } from './src/analysis-pack.js';
 
@@ -185,6 +185,7 @@ function renderRecent(state) {
         <button class="rc-edit" data-index="${index}">${run ? '改数据' : '填数据'}</button>
       </div>
       ${run ? `<div class="rc-run">${esc(runSummary(run))}${run.note ? ` · ${esc(run.note)}` : ''}</div>` : ''}
+      ${run && run.painScore > 0 ? `<div class="rc-pain">疼痛：${esc(painText(run))}</div>` : ''}
     </div>`;
   }).join('');
   card.querySelectorAll('.rc-edit').forEach((b) => {
@@ -202,6 +203,7 @@ const RUN_FIELDS = [
   ['maxHr', '最高心率', 'numeric', '次/分'],
   ['cadence', '步频', 'numeric', '步/分'],
   ['rpe', '体感 1–10', 'numeric', '1 轻松～10 极累'],
+  ['painScore', '疼痛 0–10', 'numeric', '不疼填 0'],
 ];
 
 function checkInAndAskForData(at) {
@@ -228,7 +230,8 @@ function openRunForm(index, justCheckedIn = false) {
     <div class="form-grid">
       ${RUN_FIELDS.map(([k, label, mode, ph]) => `
         <label>${label}<input id="rf_${k}" inputmode="${mode}" placeholder="${ph}" value="${esc(f[k])}"></label>`).join('')}
-      <label class="wide">备注<input id="rf_note" placeholder="如：膝盖有点酸 / 天热 / 爬坡多" value="${esc(f.note)}"></label>
+      <label class="wide">疼痛部位 / 什么时候疼<input id="rf_painArea" placeholder="如：左膝外侧，跑到第 15 分钟开始，下楼梯也疼" value="${esc(f.painArea)}"></label>
+      <label class="wide">备注<input id="rf_note" placeholder="如：天热 / 风大 / 没睡好" value="${esc(f.note)}"></label>
     </div>
     <p class="form-err" id="rfErr" hidden></p>
     <div class="t-ctrls">
@@ -240,7 +243,7 @@ function openRunForm(index, justCheckedIn = false) {
   $('rfCloseBtn').onclick = closeRunForm;
   $('rfLaterBtn').onclick = closeRunForm;
   $('rfSaveBtn').onclick = () => {
-    const form = { note: $('rf_note').value };
+    const form = { note: $('rf_note').value, painArea: $('rf_painArea').value };
     for (const [k] of RUN_FIELDS) form[k] = $('rf_' + k).value;
     const { run, errors } = formToRun(form);
     if (errors.length) {
@@ -270,7 +273,7 @@ function closeRunForm() {
 
 // ── 分析包 ──────────────────────────────
 // 拼文本的逻辑在 src/analysis-pack.js，有测试；这里只管表单和复制。
-const PROFILE_FIELDS = ['age', 'restHr', 'easyLow', 'easyHigh', 'maxHr', 'heightCm', 'weightKg', 'injuries'];
+const PROFILE_FIELDS = ['age', 'restHr', 'easyLow', 'easyHigh', 'maxHr', 'heightCm', 'weightKg', 'altitudeM', 'injuries'];
 let packScope = 'recent4w';
 
 function fillProfileForm() {

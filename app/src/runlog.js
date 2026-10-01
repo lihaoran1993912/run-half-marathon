@@ -1,17 +1,20 @@
-// 单次跑步的实际数据（从 Apple Watch / 健身 App 里抄过来的 7 项）。纯函数，有测试。
+// 单次跑步的实际数据（从 Apple Watch / 健身 App 里抄过来的 7 项 + 疼痛）。纯函数，有测试。
 //
 // 一条 run 的形状（每项都可以没有，没填就不出现）：
-//   { distKm, durationSec, avgHr, maxHr, cadence, rpe, note }
+//   { distKm, durationSec, avgHr, maxHr, cadence, rpe, painScore, painArea, note }
 //   distKm      距离，公里，两位小数
 //   durationSec 时长，秒
 //   avgHr/maxHr 平均 / 最高心率
 //   cadence     平均步频（步/分）
 //   rpe         体感 1–10（1 = 很轻松，10 = 拼尽全力）
+//   painScore   疼痛 0–10（0 = 不疼）
+//   painArea    疼痛部位 / 什么时候疼，最多 60 字（如「左膝外侧，跑到第 15 分钟开始」）
 //   note        备注，最多 200 字
 //
 // 表单那一侧全是字符串（时长拆成「分」「秒」两个框，因为 iPhone 数字键盘没有冒号）。
 
 const NOTE_MAX = 200;
+const PAIN_AREA_MAX = 60;
 
 // 全角数字 / 中文逗号句号 → 半角，再转数字。空串返回 undefined（= 没填）。
 export function readNumber(s) {
@@ -34,7 +37,12 @@ const RULES = {
   maxHr: { label: '最高心率', ok: (v) => isIntIn(v, 40, 230), hint: '40–230 的整数' },
   cadence: { label: '步频', ok: (v) => isIntIn(v, 100, 250), hint: '100–250 的整数' },
   rpe: { label: '体感', ok: (v) => isIntIn(v, 1, 10), hint: '1–10 的整数' },
+  painScore: { label: '疼痛', ok: (v) => isIntIn(v, 0, 10), hint: '0–10 的整数' },
 };
+
+// 文本字段：去首尾空格、截长度；空串 = 没填。
+const TEXTS = { painArea: PAIN_AREA_MAX, note: NOTE_MAX };
+const cleanText = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
 export function formToRun(form) {
   const errors = [];
@@ -68,9 +76,12 @@ export function formToRun(form) {
   }
   take('cadence', form.cadence);
   take('rpe', form.rpe);
+  take('painScore', form.painScore);
 
-  const note = String(form.note ?? '').trim().slice(0, NOTE_MAX);
-  if (note) run.note = note;
+  for (const [key, max] of Object.entries(TEXTS)) {
+    const t = cleanText(String(form[key] ?? ''), max);
+    if (t) run[key] = t;
+  }
 
   if (errors.length) return { run: null, errors };
   return { run: Object.keys(run).length ? run : null, errors: [] };
@@ -84,7 +95,10 @@ export function sanitizeRun(raw) {
     if (RULES[key].ok(raw[key])) run[key] = raw[key];
   }
   if (run.maxHr !== undefined && run.avgHr !== undefined && run.maxHr < run.avgHr) delete run.maxHr;
-  if (typeof raw.note === 'string' && raw.note.trim()) run.note = raw.note.trim().slice(0, NOTE_MAX);
+  for (const [key, max] of Object.entries(TEXTS)) {
+    const t = cleanText(raw[key], max);
+    if (t) run[key] = t;
+  }
   return Object.keys(run).length ? run : null;
 }
 
@@ -100,6 +114,8 @@ export function runToForm(run) {
     maxHr: str(r.maxHr),
     cadence: str(r.cadence),
     rpe: str(r.rpe),
+    painScore: str(r.painScore),
+    painArea: r.painArea ?? '',
     note: r.note ?? '',
   };
 }
@@ -121,6 +137,17 @@ export function formatDuration(sec) {
   const m = Math.floor((sec % 3600) / 60);
   const s = sec % 60;
   return h ? `${h}:${pad2(m)}:${pad2(s)}` : `${m}:${pad2(s)}`;
+}
+
+// 疼痛一行：「左膝外侧 3/10」。疼痛单独显示，不混进 runSummary，免得被一长串数字淹没。
+export function painText(run) {
+  if (!run) return '';
+  const { painScore: s, painArea: a } = run;
+  if (s === undefined && !a) return '';
+  if (s === 0 && !a) return '不疼（0/10）';
+  if (s === undefined) return `${a}（分数未填）`;
+  if (!a) return `${s}/10（部位未填）`;
+  return `${a} ${s}/10`;
 }
 
 // 一行摘要：「3.52 km · 26:10 · 配速 7'26"/km · 心率 148/162 · 步频 168 · 体感 4/10」

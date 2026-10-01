@@ -342,6 +342,8 @@ input[type="date"] {
   cursor: pointer;
 }
 .rc-run { padding: 0 0 7px 50px; font-size: 12px; color: var(--ok); font-variant-numeric: tabular-nums; }
+.rc-pain { padding: 0 0 7px 50px; margin-top: -4px; font-size: 12px; color: var(--clay); font-weight: 600; }
+.field-hint { font-size: 11.5px; color: var(--ink-faint); line-height: 1.4; padding-top: 4px; }
 
 /* ── 跑步数据 / 个人信息表单 ─────────────── */
 .muted-note { font-size: 12.5px; color: var(--ink-faint); margin: 4px 0 10px; line-height: 1.5; }
@@ -549,6 +551,8 @@ textarea {
         <label>最大心率<input id="pf_maxHr" inputmode="numeric" placeholder="没测过就空着"></label>
         <label>身高<input id="pf_heightCm" inputmode="decimal" placeholder="厘米"></label>
         <label>体重<input id="pf_weightKg" inputmode="decimal" placeholder="公斤"></label>
+        <label>常住海拔<input id="pf_altitudeM" inputmode="numeric" placeholder="米，如 2270"></label>
+        <label>&nbsp;<span class="field-hint">高海拔心率会偏高，分析时要考虑</span></label>
         <label class="wide">伤病史<input id="pf_injuries" placeholder="如：无 / 左膝去年疼过"></label>
       </div>
       <p class="form-err" id="pfErr" hidden></p>
@@ -977,20 +981,23 @@ return { totalRunMinutes, completedRunMinutes, checkinsInLastDays, distinctActiv
 
 /* ===== src/runlog.js ===== */
 const __runlog = (() => {
-// 单次跑步的实际数据（从 Apple Watch / 健身 App 里抄过来的 7 项）。纯函数，有测试。
+// 单次跑步的实际数据（从 Apple Watch / 健身 App 里抄过来的 7 项 + 疼痛）。纯函数，有测试。
 //
 // 一条 run 的形状（每项都可以没有，没填就不出现）：
-//   { distKm, durationSec, avgHr, maxHr, cadence, rpe, note }
+//   { distKm, durationSec, avgHr, maxHr, cadence, rpe, painScore, painArea, note }
 //   distKm      距离，公里，两位小数
 //   durationSec 时长，秒
 //   avgHr/maxHr 平均 / 最高心率
 //   cadence     平均步频（步/分）
 //   rpe         体感 1–10（1 = 很轻松，10 = 拼尽全力）
+//   painScore   疼痛 0–10（0 = 不疼）
+//   painArea    疼痛部位 / 什么时候疼，最多 60 字（如「左膝外侧，跑到第 15 分钟开始」）
 //   note        备注，最多 200 字
 //
 // 表单那一侧全是字符串（时长拆成「分」「秒」两个框，因为 iPhone 数字键盘没有冒号）。
 
 const NOTE_MAX = 200;
+const PAIN_AREA_MAX = 60;
 
 // 全角数字 / 中文逗号句号 → 半角，再转数字。空串返回 undefined（= 没填）。
 function readNumber(s) {
@@ -1013,7 +1020,12 @@ const RULES = {
   maxHr: { label: '最高心率', ok: (v) => isIntIn(v, 40, 230), hint: '40–230 的整数' },
   cadence: { label: '步频', ok: (v) => isIntIn(v, 100, 250), hint: '100–250 的整数' },
   rpe: { label: '体感', ok: (v) => isIntIn(v, 1, 10), hint: '1–10 的整数' },
+  painScore: { label: '疼痛', ok: (v) => isIntIn(v, 0, 10), hint: '0–10 的整数' },
 };
+
+// 文本字段：去首尾空格、截长度；空串 = 没填。
+const TEXTS = { painArea: PAIN_AREA_MAX, note: NOTE_MAX };
+const cleanText = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 function formToRun(form) {
   const errors = [];
   const run = {};
@@ -1046,9 +1058,12 @@ function formToRun(form) {
   }
   take('cadence', form.cadence);
   take('rpe', form.rpe);
+  take('painScore', form.painScore);
 
-  const note = String(form.note ?? '').trim().slice(0, NOTE_MAX);
-  if (note) run.note = note;
+  for (const [key, max] of Object.entries(TEXTS)) {
+    const t = cleanText(String(form[key] ?? ''), max);
+    if (t) run[key] = t;
+  }
 
   if (errors.length) return { run: null, errors };
   return { run: Object.keys(run).length ? run : null, errors: [] };
@@ -1062,7 +1077,10 @@ function sanitizeRun(raw) {
     if (RULES[key].ok(raw[key])) run[key] = raw[key];
   }
   if (run.maxHr !== undefined && run.avgHr !== undefined && run.maxHr < run.avgHr) delete run.maxHr;
-  if (typeof raw.note === 'string' && raw.note.trim()) run.note = raw.note.trim().slice(0, NOTE_MAX);
+  for (const [key, max] of Object.entries(TEXTS)) {
+    const t = cleanText(raw[key], max);
+    if (t) run[key] = t;
+  }
   return Object.keys(run).length ? run : null;
 }
 
@@ -1078,6 +1096,8 @@ function runToForm(run) {
     maxHr: str(r.maxHr),
     cadence: str(r.cadence),
     rpe: str(r.rpe),
+    painScore: str(r.painScore),
+    painArea: r.painArea ?? '',
     note: r.note ?? '',
   };
 }
@@ -1098,6 +1118,17 @@ function formatDuration(sec) {
   return h ? `${h}:${pad2(m)}:${pad2(s)}` : `${m}:${pad2(s)}`;
 }
 
+// 疼痛一行：「左膝外侧 3/10」。疼痛单独显示，不混进 runSummary，免得被一长串数字淹没。
+function painText(run) {
+  if (!run) return '';
+  const { painScore: s, painArea: a } = run;
+  if (s === undefined && !a) return '';
+  if (s === 0 && !a) return '不疼（0/10）';
+  if (s === undefined) return `${a}（分数未填）`;
+  if (!a) return `${s}/10（部位未填）`;
+  return `${a} ${s}/10`;
+}
+
 // 一行摘要：「3.52 km · 26:10 · 配速 7'26"/km · 心率 148/162 · 步频 168 · 体感 4/10」
 function runSummary(run) {
   if (!run) return '';
@@ -1114,7 +1145,7 @@ function runSummary(run) {
   return parts.join(' · ');
 }
 
-return { readNumber, formToRun, sanitizeRun, runToForm, paceSecPerKm, formatPace, formatDuration, runSummary };
+return { readNumber, formToRun, sanitizeRun, runToForm, paceSecPerKm, formatPace, formatDuration, painText, runSummary };
 })();
 
 /* ===== src/profile.js ===== */
@@ -1122,9 +1153,10 @@ const __profile = (() => {
 // 个人基本信息（只填一次，生成分析包时带上）。纯函数，有测试。
 //
 // 形状（每项都可以没有）：
-//   { age, restHr, easyLow, easyHigh, maxHr, heightCm, weightKg, injuries }
+//   { age, restHr, easyLow, easyHigh, maxHr, heightCm, weightKg, altitudeM, injuries }
 //   easyLow/easyHigh —— 轻松跑心率区间（用户按书里公式算的）
 //   maxHr            —— 实测最大心率，没测过就不填
+//   altitudeM        —— 常住 / 常跑地点的海拔（米）；高海拔下同样配速心率会更高
 const { readNumber } = __runlog;
 const isIntIn = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
 const inRange = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
@@ -1137,6 +1169,7 @@ const RULES = {
   maxHr: { label: '最大心率', ok: (v) => isIntIn(v, 100, 230), hint: '100–230 的整数' },
   heightCm: { label: '身高', ok: (v) => inRange(v, 100, 250), hint: '100–250 厘米' },
   weightKg: { label: '体重', ok: (v) => inRange(v, 25, 250), hint: '25–250 公斤' },
+  altitudeM: { label: '常住海拔', ok: (v) => isIntIn(v, 0, 6000), hint: '0–6000 米的整数' },
 };
 const NUM_KEYS = Object.keys(RULES);
 const TEXT_MAX = 200;
@@ -1182,7 +1215,7 @@ const __store = (() => {
 // 主数据很小：{ checkins: [{ seq, at, run? }], profile }
 //   seq     —— 计划里的第几次训练（1 起）
 //   at      —— 打卡日期 'YYYY-MM-DD'
-//   run     —— 这次的实际跑步数据（可选，形状见 runlog.js）
+//   run     —— 这次的实际跑步数据，含疼痛（可选，形状见 runlog.js）
 //   profile —— 个人基本信息（形状见 profile.js），清空打卡时保留
 //
 // 另存一份「上次备份」的书签（设备本地，不进导出内容）：
@@ -1341,8 +1374,9 @@ return { STORAGE_KEY, BACKUP_KEY, EXPORT_VERSION, createStore };
 const __analysis_pack = (() => {
 // 生成「分析包」：一段纯文本，把计划课表 + 实际跑步数据 + 个人信息 + 分析要求拼在一起，
 // 用户复制后粘贴给 Claude（可以再附几张健身 App 截图）。App 本身不做分析。纯函数，有测试。
-const { runSummary } = __runlog;
+const { runSummary, painText } = __runlog;
 const MS_PER_DAY = 86400000;
+const HIGH_ALTITUDE_M = 1500; // 一般认为 1500 米以上，海拔对心率 / 配速的影响就比较明显了
 const SCOPES = {
   last: '最近 1 次',
   recent4w: '最近 4 周',
@@ -1371,6 +1405,7 @@ function profileLines(p) {
     `- 年龄：${p.age === undefined ? '未填' : `${p.age} 岁`}；身高：${v(p.heightCm, ' cm')}；体重：${v(p.weightKg, ' kg')}`,
     `- 静息心率 ${v(p.restHr)}；轻松跑心率区间：${zone}`,
     `- 最大心率：${p.maxHr === undefined ? '未实测' : p.maxHr}`,
+    `- 常住海拔：${p.altitudeM === undefined ? '未填' : `约 ${p.altitudeM} 米`}`,
     `- 伤病史：${p.injuries || '未填'}`,
   ];
 }
@@ -1409,7 +1444,9 @@ function buildPack({ plan, state, profile = {}, scope = 'recent4w', today }) {
     if (c.run) {
       const summary = runSummary(c.run);
       const { note } = c.run;
+      const pain = painText(c.run);
       if (summary) out.push(`- 实际：${summary}`);
+      if (pain) out.push(`- 疼痛：${pain}`);
       if (note) out.push(`- 备注：${note}`);
     } else {
       out.push('- 实际：只打了卡，没有记录数据');
@@ -1418,7 +1455,10 @@ function buildPack({ plan, state, profile = {}, scope = 'recent4w', today }) {
   out.push('');
 
   out.push('## 说明');
-  out.push('- 「体感」是 1–10 分的主观吃力程度（1 很轻松，10 拼尽全力）');
+  out.push('- 「体感」是 1–10 分的主观吃力程度（1 很轻松，10 拼尽全力）；「疼痛」是 0–10 分（0 不疼）');
+  if (profile.altitudeM >= HIGH_ALTITUDE_M) {
+    out.push(`- 我在高海拔（约 ${profile.altitudeM} 米）跑步，同样配速下心率会比平原高、配速会偏慢`);
+  }
   if (picked.some((i) => plan[i] && isRunWalk(plan[i]))) {
     out.push('- 走跑结合的课，手表记录的平均心率和配速包含了走路的时间，比纯跑段要低/慢');
   }
@@ -1426,6 +1466,9 @@ function buildPack({ plan, state, profile = {}, scope = 'recent4w', today }) {
   out.push('');
 
   out.push('## 请帮我分析');
+  if (picked.some((i) => state.checkins[i].run?.painScore > 0)) {
+    out.push('⚠️ 这段时间有疼痛记录，请优先判断要不要调整或暂停训练、什么情况该去看医生。');
+  }
   out.push('1. 计划执行：实际做的和计划的差距（时长、走跑比例、心率是否在轻松跑区间、节奏跑/间歇跑强度是否到位）');
   out.push('2. 趋势：跨周看，同样配速下心率有没有下降、恢复周有没有真的减量、体感有没有变轻松');
   out.push('3. 风险信号：配速太快、心率太高、连续疲劳、受伤苗头');
@@ -1797,7 +1840,7 @@ const __version = (() => {
 // 每次改完前端代码、准备发布时，两件事一起做（缺一个 test/version.test.js 就会报红）：
 //   1. 这里的 VERSION 往上 +1、BUILT_AT 改成今天
 //   2. sw.js 里的 CACHE 常量也要跟着改成同一个数字（否则 Service Worker 不认为有更新）
-const VERSION = 'v8';
+const VERSION = 'v9';
 const BUILT_AT = '2026-10-01';
 
 return { VERSION, BUILT_AT };
@@ -1821,7 +1864,7 @@ const { parseSession } = __segments;
 const { stateAt, formatClock, frameCues, elapsedFrom } = __timer;
 const { createBeeper } = __audio;
 const { VERSION, BUILT_AT } = __version;
-const { formToRun, runToForm, runSummary } = __runlog;
+const { formToRun, runToForm, runSummary, painText } = __runlog;
 const { formToProfile, profileToForm } = __profile;
 const { buildPack } = __analysis_pack;
 const store = createStore(window.localStorage);
@@ -1989,6 +2032,7 @@ function renderRecent(state) {
         <button class="rc-edit" data-index="${index}">${run ? '改数据' : '填数据'}</button>
       </div>
       ${run ? `<div class="rc-run">${esc(runSummary(run))}${run.note ? ` · ${esc(run.note)}` : ''}</div>` : ''}
+      ${run && run.painScore > 0 ? `<div class="rc-pain">疼痛：${esc(painText(run))}</div>` : ''}
     </div>`;
   }).join('');
   card.querySelectorAll('.rc-edit').forEach((b) => {
@@ -2006,6 +2050,7 @@ const RUN_FIELDS = [
   ['maxHr', '最高心率', 'numeric', '次/分'],
   ['cadence', '步频', 'numeric', '步/分'],
   ['rpe', '体感 1–10', 'numeric', '1 轻松～10 极累'],
+  ['painScore', '疼痛 0–10', 'numeric', '不疼填 0'],
 ];
 
 function checkInAndAskForData(at) {
@@ -2032,7 +2077,8 @@ function openRunForm(index, justCheckedIn = false) {
     <div class="form-grid">
       ${RUN_FIELDS.map(([k, label, mode, ph]) => `
         <label>${label}<input id="rf_${k}" inputmode="${mode}" placeholder="${ph}" value="${esc(f[k])}"></label>`).join('')}
-      <label class="wide">备注<input id="rf_note" placeholder="如：膝盖有点酸 / 天热 / 爬坡多" value="${esc(f.note)}"></label>
+      <label class="wide">疼痛部位 / 什么时候疼<input id="rf_painArea" placeholder="如：左膝外侧，跑到第 15 分钟开始，下楼梯也疼" value="${esc(f.painArea)}"></label>
+      <label class="wide">备注<input id="rf_note" placeholder="如：天热 / 风大 / 没睡好" value="${esc(f.note)}"></label>
     </div>
     <p class="form-err" id="rfErr" hidden></p>
     <div class="t-ctrls">
@@ -2044,7 +2090,7 @@ function openRunForm(index, justCheckedIn = false) {
   $('rfCloseBtn').onclick = closeRunForm;
   $('rfLaterBtn').onclick = closeRunForm;
   $('rfSaveBtn').onclick = () => {
-    const form = { note: $('rf_note').value };
+    const form = { note: $('rf_note').value, painArea: $('rf_painArea').value };
     for (const [k] of RUN_FIELDS) form[k] = $('rf_' + k).value;
     const { run, errors } = formToRun(form);
     if (errors.length) {
@@ -2074,7 +2120,7 @@ function closeRunForm() {
 
 // ── 分析包 ──────────────────────────────
 // 拼文本的逻辑在 src/analysis-pack.js，有测试；这里只管表单和复制。
-const PROFILE_FIELDS = ['age', 'restHr', 'easyLow', 'easyHigh', 'maxHr', 'heightCm', 'weightKg', 'injuries'];
+const PROFILE_FIELDS = ['age', 'restHr', 'easyLow', 'easyHigh', 'maxHr', 'heightCm', 'weightKg', 'altitudeM', 'injuries'];
 let packScope = 'recent4w';
 
 function fillProfileForm() {

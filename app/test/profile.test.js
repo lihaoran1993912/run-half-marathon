@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { formToProfile, sanitizeProfile, profileToForm } from '../src/profile.js';
 
-const blank = { age: '', restHr: '', easyLow: '', easyHigh: '', maxHr: '', heightCm: '', weightKg: '', injuries: '' };
+const blank = { age: '', restHr: '', easyLow: '', easyHigh: '', maxHr: '', heightCm: '', weightKg: '', altitudeM: '', injuries: '' };
 const form = (o) => ({ ...blank, ...o });
 
 test('formToProfile：正常填写', () => {
@@ -48,7 +48,15 @@ test('sanitizeProfile：坏字段丢掉；不是对象 → 空对象', () => {
 });
 
 test('profileToForm ↔ formToProfile 来回不变', () => {
-  const p = { age: 33, restHr: 57, easyLow: 134, easyHigh: 153, heightCm: 172, weightKg: 71, injuries: '无' };
+  const p = { age: 33, restHr: 57, easyLow: 134, easyHigh: 153, heightCm: 172, weightKg: 71, altitudeM: 2270, injuries: '无' };
   assert.deepEqual(formToProfile(profileToForm(p)).profile, p);
   assert.deepEqual(profileToForm({}), blank);
+});
+
+test('常住海拔：0–6000 米的整数；0（海边）也合法', () => {
+  assert.equal(formToProfile(form({ altitudeM: '2270' })).profile.altitudeM, 2270);
+  assert.equal(formToProfile(form({ altitudeM: '0' })).profile.altitudeM, 0);
+  const r = formToProfile(form({ altitudeM: '9000' }));
+  assert.equal(r.profile, null);
+  assert.match(r.errors[0], /海拔/);
 });

@@ -1,9 +1,10 @@
 // 个人基本信息（只填一次，生成分析包时带上）。纯函数，有测试。
 //
 // 形状（每项都可以没有）：
-//   { age, restHr, easyLow, easyHigh, maxHr, heightCm, weightKg, injuries }
+//   { age, restHr, easyLow, easyHigh, maxHr, heightCm, weightKg, altitudeM, injuries }
 //   easyLow/easyHigh —— 轻松跑心率区间（用户按书里公式算的）
 //   maxHr            —— 实测最大心率，没测过就不填
+//   altitudeM        —— 常住 / 常跑地点的海拔（米）；高海拔下同样配速心率会更高
 
 import { readNumber } from './runlog.js';
 
@@ -18,6 +19,7 @@ const RULES = {
   maxHr: { label: '最大心率', ok: (v) => isIntIn(v, 100, 230), hint: '100–230 的整数' },
   heightCm: { label: '身高', ok: (v) => inRange(v, 100, 250), hint: '100–250 厘米' },
   weightKg: { label: '体重', ok: (v) => inRange(v, 25, 250), hint: '25–250 公斤' },
+  altitudeM: { label: '常住海拔', ok: (v) => isIntIn(v, 0, 6000), hint: '0–6000 米的整数' },
 };
 const NUM_KEYS = Object.keys(RULES);
 const TEXT_MAX = 200;

@@ -1,9 +1,10 @@
 // 生成「分析包」：一段纯文本，把计划课表 + 实际跑步数据 + 个人信息 + 分析要求拼在一起，
 // 用户复制后粘贴给 Claude（可以再附几张健身 App 截图）。App 本身不做分析。纯函数，有测试。
 
-import { runSummary } from './runlog.js';
+import { runSummary, painText } from './runlog.js';
 
 const MS_PER_DAY = 86400000;
+const HIGH_ALTITUDE_M = 1500; // 一般认为 1500 米以上，海拔对心率 / 配速的影响就比较明显了
 
 export const SCOPES = {
   last: '最近 1 次',
@@ -33,6 +34,7 @@ function profileLines(p) {
     `- 年龄：${p.age === undefined ? '未填' : `${p.age} 岁`}；身高：${v(p.heightCm, ' cm')}；体重：${v(p.weightKg, ' kg')}`,
     `- 静息心率 ${v(p.restHr)}；轻松跑心率区间：${zone}`,
     `- 最大心率：${p.maxHr === undefined ? '未实测' : p.maxHr}`,
+    `- 常住海拔：${p.altitudeM === undefined ? '未填' : `约 ${p.altitudeM} 米`}`,
     `- 伤病史：${p.injuries || '未填'}`,
   ];
 }
@@ -72,7 +74,9 @@ export function buildPack({ plan, state, profile = {}, scope = 'recent4w', today
     if (c.run) {
       const summary = runSummary(c.run);
       const { note } = c.run;
+      const pain = painText(c.run);
       if (summary) out.push(`- 实际：${summary}`);
+      if (pain) out.push(`- 疼痛：${pain}`);
       if (note) out.push(`- 备注：${note}`);
     } else {
       out.push('- 实际：只打了卡，没有记录数据');
@@ -81,7 +85,10 @@ export function buildPack({ plan, state, profile = {}, scope = 'recent4w', today
   out.push('');
 
   out.push('## 说明');
-  out.push('- 「体感」是 1–10 分的主观吃力程度（1 很轻松，10 拼尽全力）');
+  out.push('- 「体感」是 1–10 分的主观吃力程度（1 很轻松，10 拼尽全力）；「疼痛」是 0–10 分（0 不疼）');
+  if (profile.altitudeM >= HIGH_ALTITUDE_M) {
+    out.push(`- 我在高海拔（约 ${profile.altitudeM} 米）跑步，同样配速下心率会比平原高、配速会偏慢`);
+  }
   if (picked.some((i) => plan[i] && isRunWalk(plan[i]))) {
     out.push('- 走跑结合的课，手表记录的平均心率和配速包含了走路的时间，比纯跑段要低/慢');
   }
@@ -89,6 +96,9 @@ export function buildPack({ plan, state, profile = {}, scope = 'recent4w', today
   out.push('');
 
   out.push('## 请帮我分析');
+  if (picked.some((i) => state.checkins[i].run?.painScore > 0)) {
+    out.push('⚠️ 这段时间有疼痛记录，请优先判断要不要调整或暂停训练、什么情况该去看医生。');
+  }
   out.push('1. 计划执行：实际做的和计划的差距（时长、走跑比例、心率是否在轻松跑区间、节奏跑/间歇跑强度是否到位）');
   out.push('2. 趋势：跨周看，同样配速下心率有没有下降、恢复周有没有真的减量、体感有没有变轻松');
   out.push('3. 风险信号：配速太快、心率太高、连续疲劳、受伤苗头');
