@@ -143,3 +143,76 @@ test('落盘失败（存储抛异常）时，checkIn 仍返回内存里的最新
   const res = store.checkIn(1, '2026-09-10');
   assert.deepEqual(res.checkins, [{ seq: 1, at: '2026-09-10' }]);
 });
+
+// ── 跑步数据（run）+ 个人信息（profile）────────────────────────
+
+const RUN = { distKm: 3.52, durationSec: 1570, avgHr: 148, maxHr: 162, cadence: 168, rpe: 4, note: '膝盖有点酸' };
+
+test('setRun：给某次打卡挂上跑步数据，刷新后还在', () => {
+  const storage = fakeStorage();
+  const a = createStore(storage);
+  a.checkIn(1, '2026-09-10');
+  a.checkIn(2, '2026-09-12');
+  a.setRun(0, RUN);
+  const b = createStore(storage);
+  assert.deepEqual(b.get().checkins[0], { seq: 1, at: '2026-09-10', run: RUN });
+  assert.deepEqual(b.get().checkins[1], { seq: 2, at: '2026-09-12' });
+});
+
+test('setRun(null) 删掉数据；越界下标什么也不做', () => {
+  const store = createStore(fakeStorage());
+  store.checkIn(1, '2026-09-10');
+  store.setRun(0, RUN);
+  store.setRun(0, null);
+  assert.deepEqual(store.get().checkins[0], { seq: 1, at: '2026-09-10' });
+  store.setRun(5, RUN);
+  assert.equal(store.get().checkins.length, 1);
+});
+
+test('setRun 存进去的坏字段会被清掉', () => {
+  const store = createStore(fakeStorage());
+  store.checkIn(1, '2026-09-10');
+  store.setRun(0, { avgHr: 148, evil: '<script>', rpe: 99 });
+  assert.deepEqual(store.get().checkins[0].run, { avgHr: 148 });
+});
+
+test('get() 返回的 run 是副本', () => {
+  const store = createStore(fakeStorage());
+  store.checkIn(1, '2026-09-10');
+  store.setRun(0, RUN);
+  store.get().checkins[0].run.avgHr = 999;
+  assert.equal(store.get().checkins[0].run.avgHr, 148);
+});
+
+test('旧数据（没有 run 字段）照常读', () => {
+  const storage = fakeStorage({ [STORAGE_KEY]: JSON.stringify({ checkins: [{ seq: 1, at: '2026-09-10' }] }) });
+  assert.deepEqual(createStore(storage).get().checkins, [{ seq: 1, at: '2026-09-10' }]);
+  assert.deepEqual(createStore(storage).get().profile, {});
+});
+
+test('setProfile：保存个人信息，刷新后还在；清空打卡不清个人信息', () => {
+  const storage = fakeStorage();
+  const a = createStore(storage);
+  a.setProfile({ age: 33, restHr: 57 });
+  a.checkIn(1, '2026-09-10');
+  a.reset();
+  assert.deepEqual(createStore(storage).get().profile, { age: 33, restHr: 57 });
+});
+
+test('导出带上 run 和 profile；导入后都回来', () => {
+  const a = createStore(fakeStorage());
+  a.checkIn(1, '2026-09-10');
+  a.setRun(0, RUN);
+  a.setProfile({ age: 33 });
+  const b = createStore(fakeStorage());
+  b.importJson(a.exportJson());
+  assert.deepEqual(b.get().checkins[0].run, RUN);
+  assert.deepEqual(b.get().profile, { age: 33 });
+});
+
+test('导入旧备份（没有 profile）时，保留本机已有的个人信息', () => {
+  const store = createStore(fakeStorage());
+  store.setProfile({ age: 33 });
+  store.importJson(JSON.stringify({ checkins: [{ seq: 1, at: '2026-09-10' }] }));
+  assert.deepEqual(store.get().profile, { age: 33 });
+});

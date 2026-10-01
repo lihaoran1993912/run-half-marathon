@@ -31,6 +31,8 @@
 
 <section class="card" id="nextCard"></section>
 
+<section class="card" id="runCard" hidden></section>
+
 <section class="card timer" id="timerCard" hidden></section>
 
 <section class="stats" id="stats"></section>
@@ -40,6 +42,36 @@
 <details class="plan">
   <summary>全部计划（20 周）</summary>
   <div class="weeks" id="weeks"></div>
+</details>
+
+<details class="card pack" id="packBox">
+  <summary>📊 生成分析包（发给 Claude 分析）</summary>
+  <div class="tools-body">
+    <p>把计划课表、你填的跑步数据和个人信息拼成一段文字。点「复制分析包」后粘贴给 Claude，再附上健身 App 里这次锻炼的截图（分段配速、心率区间），效果最好。</p>
+    <details class="sub" id="profileBox">
+      <summary>个人信息（填一次就行）</summary>
+      <div class="form-grid">
+        <label>年龄<input id="pf_age" inputmode="numeric" placeholder="岁"></label>
+        <label>静息心率<input id="pf_restHr" inputmode="numeric" placeholder="次/分"></label>
+        <label>轻松跑区间下限<input id="pf_easyLow" inputmode="numeric" placeholder="如 134"></label>
+        <label>轻松跑区间上限<input id="pf_easyHigh" inputmode="numeric" placeholder="如 153"></label>
+        <label>最大心率<input id="pf_maxHr" inputmode="numeric" placeholder="没测过就空着"></label>
+        <label>身高<input id="pf_heightCm" inputmode="decimal" placeholder="厘米"></label>
+        <label>体重<input id="pf_weightKg" inputmode="decimal" placeholder="公斤"></label>
+        <label class="wide">伤病史<input id="pf_injuries" placeholder="如：无 / 左膝去年疼过"></label>
+      </div>
+      <p class="form-err" id="pfErr" hidden></p>
+      <div class="mini-row"><button class="mini" id="pfSaveBtn">保存个人信息</button></div>
+    </details>
+    <div class="scope-row" id="scopeRow">
+      <span>范围</span>
+      <button class="chip" data-scope="last">最近 1 次</button>
+      <button class="chip" data-scope="recent4w">最近 4 周</button>
+      <button class="chip" data-scope="all">全部</button>
+    </div>
+    <button class="btn block" id="packCopyBtn">复制分析包</button>
+    <textarea id="packText" readonly placeholder="点上面的按钮生成"></textarea>
+  </div>
 </details>
 
 <details class="tools" id="toolsBox">

@@ -17,19 +17,22 @@ const dir = fileURLToPath(new URL('.', import.meta.url));
 const read = (p) => readFile(dir + p, 'utf8');
 
 // 有依赖关系的必须按「被依赖的在前」排：segments/timer 不依赖别人；
-// audio 依赖 timer，排在它后面。
+// audio 依赖 timer，排在它后面；store/profile/analysis-pack 依赖 runlog，排在它后面。
 const LIBS = [
-  'src/plan.js', 'src/progress.js', 'src/stats.js', 'src/store.js',
+  'src/plan.js', 'src/progress.js', 'src/stats.js',
+  'src/runlog.js', 'src/profile.js', 'src/store.js', 'src/analysis-pack.js',
   'src/segments.js', 'src/timer.js', 'src/audio.js', 'src/backup.js', 'src/version.js',
 ];
-const nsOf = (path) => '__' + path.replace(/.*\//, '').replace('.js', '');
+// 文件名转成合法变量名：analysis-pack.js → __analysis_pack（连字符不能出现在变量名里）
+const nsName = (mod) => '__' + mod.replace(/-/g, '_');
+const nsOf = (path) => nsName(path.replace(/.*\//, '').replace('.js', ''));
 
 // 把「import { a, b } from './xxx.js'」或「from './src/xxx.js'」统一改写成
 // 「const { a, b } = __xxx;」——前一种是 app.js 引 src 模块的写法，后一种是
 // src 模块互相引用的写法（比如 audio.js 引 timer.js），两种都可能出现。
 function rewriteImports(code) {
-  return code.replace(/^\s*import\s*\{([^}]+)\}\s*from\s*'\.\/(?:src\/)?([A-Za-z0-9_]+)\.js';\s*$/gm,
-    (_, names, mod) => `const {${names}} = __${mod};`);
+  return code.replace(/^\s*import\s*\{([^}]+)\}\s*from\s*'\.\/(?:src\/)?([A-Za-z0-9_-]+)\.js';\s*$/gm,
+    (_, names, mod) => `const {${names}} = ${nsName(mod)};`);
 }
 
 function exportedNames(code) {

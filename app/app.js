@@ -16,6 +16,9 @@ import { parseSession } from './src/segments.js';
 import { stateAt, formatClock, frameCues, elapsedFrom } from './src/timer.js';
 import { createBeeper } from './src/audio.js';
 import { VERSION, BUILT_AT } from './src/version.js';
+import { formToRun, runToForm, runSummary } from './src/runlog.js';
+import { formToProfile, profileToForm } from './src/profile.js';
+import { buildPack } from './src/analysis-pack.js';
 
 const store = createStore(window.localStorage);
 const $ = (id) => document.getElementById(id);
@@ -33,7 +36,7 @@ function fmtShort(s) {
   return `${+m}/${+d}`;
 }
 
-const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 function toast(msg) {
   const t = $('toast');
@@ -87,11 +90,12 @@ function render() {
     $('ciBtn').onclick = () => {
       $('ciBtn').disabled = true; // 防手抖连点两下多打一次
       const at = $('ciDate').value || todayStr();
-      store.checkIn(nextSession(PLAN, store.get()).seq, at);
-      render();
-      toast('已打卡 ✓');
+      checkInAndAskForData(at);
     };
     if ($('undoBtn')) $('undoBtn').onclick = () => {
+      const all = store.get().checkins;
+      if (all[all.length - 1].run && !confirm('上一次打卡填过跑步数据，撤销会一起删掉。确定撤销？')) return;
+      closeRunForm();
       store.undoLast();
       render();
       toast('已撤销');
@@ -167,12 +171,156 @@ function renderRecent(state) {
     return;
   }
   card.hidden = false;
-  card.innerHTML = `<div class="next-head">最近完成</div>` + list.map((r) => `
-    <div class="rc">
-      <span class="rc-date">${fmtShort(r.at)}</span>
-      <span class="rc-txt">第 ${r.seq} 次 · 第 ${r.week} 周</span>
-      <span class="rc-detail">${esc(r.detail)}</span>
-    </div>`).join('');
+  // recentCheckins 最新在前：第 k 项对应 checkins[done - 1 - k]
+  const done = state.checkins.length;
+  card.innerHTML = `<div class="next-head">最近完成</div>` + list.map((r, k) => {
+    const index = done - 1 - k;
+    const run = state.checkins[index].run;
+    return `
+    <div class="rc-item">
+      <div class="rc">
+        <span class="rc-date">${fmtShort(r.at)}</span>
+        <span class="rc-txt">第 ${r.seq} 次 · 第 ${r.week} 周</span>
+        <span class="rc-detail">${esc(r.detail)}</span>
+        <button class="rc-edit" data-index="${index}">${run ? '改数据' : '填数据'}</button>
+      </div>
+      ${run ? `<div class="rc-run">${esc(runSummary(run))}${run.note ? ` · ${esc(run.note)}` : ''}</div>` : ''}
+    </div>`;
+  }).join('');
+  card.querySelectorAll('.rc-edit').forEach((b) => {
+    b.onclick = () => openRunForm(Number(b.dataset.index));
+  });
+}
+
+// ── 跑步数据表单（打卡后填，或在「最近完成」里补 / 改）────────────
+// 校验、换算在 src/runlog.js，有测试；这里只管 DOM。
+const RUN_FIELDS = [
+  ['distKm', '距离', 'decimal', '公里，如 3.52'],
+  ['durMin', '时长（分）', 'numeric', '分'],
+  ['durSec', '时长（秒）', 'numeric', '秒'],
+  ['avgHr', '平均心率', 'numeric', '次/分'],
+  ['maxHr', '最高心率', 'numeric', '次/分'],
+  ['cadence', '步频', 'numeric', '步/分'],
+  ['rpe', '体感 1–10', 'numeric', '1 轻松～10 极累'],
+];
+
+function checkInAndAskForData(at) {
+  store.checkIn(nextSession(PLAN, store.get()).seq, at);
+  render();
+  toast('已打卡 ✓');
+  openRunForm(store.get().checkins.length - 1, true);
+}
+
+function openRunForm(index, justCheckedIn = false) {
+  const c = store.get().checkins[index];
+  if (!c) return;
+  const s = PLAN[index] || { seq: c.seq, detail: '' };
+  const f = runToForm(c.run);
+  const card = $('runCard');
+  card.hidden = false;
+  card.innerHTML = `
+    <div class="t-head">
+      <span>${justCheckedIn ? '刚完成' : ''}第 ${s.seq} 次 · ${fmtShort(c.at)} · 跑步数据</span>
+      <button class="t-x" id="rfCloseBtn" aria-label="关闭">✕</button>
+    </div>
+    <div class="t-plan">${esc(s.detail)}</div>
+    <p class="muted-note">打开 iPhone「健身」App → 这次锻炼，照着抄。不知道的项空着就行${justCheckedIn ? '；现在没空，以后在「最近完成」里点「填数据」补' : ''}。</p>
+    <div class="form-grid">
+      ${RUN_FIELDS.map(([k, label, mode, ph]) => `
+        <label>${label}<input id="rf_${k}" inputmode="${mode}" placeholder="${ph}" value="${esc(f[k])}"></label>`).join('')}
+      <label class="wide">备注<input id="rf_note" placeholder="如：膝盖有点酸 / 天热 / 爬坡多" value="${esc(f.note)}"></label>
+    </div>
+    <p class="form-err" id="rfErr" hidden></p>
+    <div class="t-ctrls">
+      <button class="btn" id="rfSaveBtn">保存</button>
+      <button class="btn ghost" id="rfLaterBtn">${c.run ? '取消' : '稍后再填'}</button>
+    </div>
+    ${c.run ? '<button class="undo" id="rfDelBtn">删掉这次的数据</button>' : ''}
+  `;
+  $('rfCloseBtn').onclick = closeRunForm;
+  $('rfLaterBtn').onclick = closeRunForm;
+  $('rfSaveBtn').onclick = () => {
+    const form = { note: $('rf_note').value };
+    for (const [k] of RUN_FIELDS) form[k] = $('rf_' + k).value;
+    const { run, errors } = formToRun(form);
+    if (errors.length) {
+      $('rfErr').textContent = errors.join('；');
+      $('rfErr').hidden = false;
+      return;
+    }
+    store.setRun(index, run);
+    closeRunForm();
+    render();
+    toast(run ? '数据已保存 ✓' : '没填任何数据');
+  };
+  if ($('rfDelBtn')) $('rfDelBtn').onclick = () => {
+    if (!confirm('删掉这次的跑步数据？打卡本身保留。')) return;
+    store.setRun(index, null);
+    closeRunForm();
+    render();
+    toast('已删除数据');
+  };
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function closeRunForm() {
+  $('runCard').hidden = true;
+  $('runCard').innerHTML = '';
+}
+
+// ── 分析包 ──────────────────────────────
+// 拼文本的逻辑在 src/analysis-pack.js，有测试；这里只管表单和复制。
+const PROFILE_FIELDS = ['age', 'restHr', 'easyLow', 'easyHigh', 'maxHr', 'heightCm', 'weightKg', 'injuries'];
+let packScope = 'recent4w';
+
+function fillProfileForm() {
+  const f = profileToForm(store.get().profile);
+  for (const k of PROFILE_FIELDS) $('pf_' + k).value = f[k];
+  // 还没填过个人信息就默认展开，提醒先填
+  $('profileBox').open = Object.keys(store.get().profile).length === 0;
+}
+
+function paintScope() {
+  $('scopeRow').querySelectorAll('.chip').forEach((b) => b.classList.toggle('on', b.dataset.scope === packScope));
+}
+
+async function copyPack() {
+  const state = store.get();
+  if (state.checkins.length === 0) return toast('还没有打卡记录');
+  const text = buildPack({ plan: PLAN, state, profile: state.profile, scope: packScope, today: todayStr() });
+  const box = $('packText');
+  box.value = text;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('已复制，粘贴给 Claude 吧');
+  } catch {
+    box.focus();
+    box.select();
+    toast('已选中全文，请长按复制');
+  }
+}
+
+function wirePack() {
+  fillProfileForm();
+  paintScope();
+  $('pfSaveBtn').onclick = () => {
+    const form = {};
+    for (const k of PROFILE_FIELDS) form[k] = $('pf_' + k).value;
+    const { profile, errors } = formToProfile(form);
+    if (errors.length) {
+      $('pfErr').textContent = errors.join('；');
+      $('pfErr').hidden = false;
+      return;
+    }
+    $('pfErr').hidden = true;
+    store.setProfile(profile);
+    fillProfileForm();
+    toast('个人信息已保存 ✓');
+  };
+  $('scopeRow').querySelectorAll('.chip').forEach((b) => {
+    b.onclick = () => { packScope = b.dataset.scope; paintScope(); };
+  });
+  $('packCopyBtn').onclick = copyPack;
 }
 
 function renderWeeks(state) {
@@ -469,11 +617,8 @@ function wireTimerCtrls(finished) {
   on('tStartBtn', () => (T.startMs ? resumeClock() : startClock()));
   on('tPauseBtn', pauseClock);
   on('tCheckinBtn', () => {
-    const at = todayStr();
-    store.checkIn(nextSession(PLAN, store.get()).seq, at);
     closeTimer();
-    render();
-    toast('已打卡 ✓');
+    checkInAndAskForData(todayStr());
   });
   on('tAudioResumeBtn', () => {
     beeper.manualResume(); // 必须直接在这个点击回调里调用，靠这次真实手势把音频救回来
@@ -509,6 +654,8 @@ function wireTools() {
     if (!text) return toast('先把备份文本粘进上面的框');
     try {
       store.importJson(text);
+      closeRunForm();
+      fillProfileForm();
       render();
       toast('已导入备份');
     } catch (e) {
@@ -517,6 +664,7 @@ function wireTools() {
   };
   $('resetBtn').onclick = () => {
     if (confirm('确定清空所有打卡记录？建议先「保存备份」。')) {
+      closeRunForm();
       store.reset();
       render();
       toast('已清空');
@@ -528,6 +676,7 @@ function wireTools() {
 $('verFoot').textContent = `${VERSION} · ${BUILT_AT}`;
 render();
 wireTools();
+wirePack();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

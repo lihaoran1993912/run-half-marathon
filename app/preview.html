@@ -326,7 +326,67 @@ input[type="date"] {
 .rc:first-of-type { border-top: none; }
 .rc-date { flex: none; width: 42px; color: var(--clay-dark); font-weight: 700; font-variant-numeric: tabular-nums; }
 .rc-txt { flex: none; color: var(--ink-faint); }
-.rc-detail { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-detail { flex: 1; min-width: 0; color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-item { border-top: 1px solid var(--line); }
+.rc-item:first-of-type { border-top: none; }
+.rc-item .rc { border-top: none; align-items: center; }
+.rc-edit {
+  flex: none;
+  border: 1px solid var(--clay-soft);
+  background: transparent;
+  color: var(--clay);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rc-run { padding: 0 0 7px 50px; font-size: 12px; color: var(--ok); font-variant-numeric: tabular-nums; }
+
+/* ── 跑步数据 / 个人信息表单 ─────────────── */
+.muted-note { font-size: 12.5px; color: var(--ink-faint); margin: 4px 0 10px; line-height: 1.5; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; margin-bottom: 10px; }
+.form-grid label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--ink-soft); min-width: 0; }
+.form-grid label.wide { grid-column: 1 / -1; }
+.form-grid input {
+  font-family: inherit;
+  font-size: 16px; /* 小于 16px 时 iOS 聚焦会自动放大页面 */
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--ink);
+  width: 100%;
+  min-width: 0;
+}
+.form-err { font-size: 12.5px; color: var(--clay); margin: 0 0 10px; }
+
+/* ── 分析包 ───────────────────────────── */
+details.pack > summary {
+  cursor: pointer;
+  list-style: none;
+  font-weight: 700;
+  font-size: 15px;
+}
+details.pack > summary::-webkit-details-marker { display: none; }
+details.pack > summary::after { content: " ▾"; color: var(--ink-faint); }
+details.pack[open] > summary::after { content: " ▴"; }
+details.pack .tools-body p { font-size: 12.5px; color: var(--ink-faint); margin: 8px 0; line-height: 1.5; }
+details.sub { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; margin: 8px 0 12px; }
+details.sub > summary { cursor: pointer; font-size: 13.5px; font-weight: 600; color: var(--ink-soft); }
+details.sub[open] > summary { margin-bottom: 10px; }
+.scope-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; font-size: 13px; color: var(--ink-faint); }
+.chip {
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink-soft);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.chip.on { background: var(--clay-soft); color: var(--clay-dark); border-color: var(--clay-soft); font-weight: 700; }
+#packText { margin-top: 10px; min-height: 120px; }
 
 /* ── 全部计划 ─────────────────────────── */
 details.plan { margin-bottom: 14px; }
@@ -462,6 +522,8 @@ textarea {
 
 <section class="card" id="nextCard"></section>
 
+<section class="card" id="runCard" hidden></section>
+
 <section class="card timer" id="timerCard" hidden></section>
 
 <section class="stats" id="stats"></section>
@@ -471,6 +533,36 @@ textarea {
 <details class="plan">
   <summary>全部计划（20 周）</summary>
   <div class="weeks" id="weeks"></div>
+</details>
+
+<details class="card pack" id="packBox">
+  <summary>📊 生成分析包（发给 Claude 分析）</summary>
+  <div class="tools-body">
+    <p>把计划课表、你填的跑步数据和个人信息拼成一段文字。点「复制分析包」后粘贴给 Claude，再附上健身 App 里这次锻炼的截图（分段配速、心率区间），效果最好。</p>
+    <details class="sub" id="profileBox">
+      <summary>个人信息（填一次就行）</summary>
+      <div class="form-grid">
+        <label>年龄<input id="pf_age" inputmode="numeric" placeholder="岁"></label>
+        <label>静息心率<input id="pf_restHr" inputmode="numeric" placeholder="次/分"></label>
+        <label>轻松跑区间下限<input id="pf_easyLow" inputmode="numeric" placeholder="如 134"></label>
+        <label>轻松跑区间上限<input id="pf_easyHigh" inputmode="numeric" placeholder="如 153"></label>
+        <label>最大心率<input id="pf_maxHr" inputmode="numeric" placeholder="没测过就空着"></label>
+        <label>身高<input id="pf_heightCm" inputmode="decimal" placeholder="厘米"></label>
+        <label>体重<input id="pf_weightKg" inputmode="decimal" placeholder="公斤"></label>
+        <label class="wide">伤病史<input id="pf_injuries" placeholder="如：无 / 左膝去年疼过"></label>
+      </div>
+      <p class="form-err" id="pfErr" hidden></p>
+      <div class="mini-row"><button class="mini" id="pfSaveBtn">保存个人信息</button></div>
+    </details>
+    <div class="scope-row" id="scopeRow">
+      <span>范围</span>
+      <button class="chip" data-scope="last">最近 1 次</button>
+      <button class="chip" data-scope="recent4w">最近 4 周</button>
+      <button class="chip" data-scope="all">全部</button>
+    </div>
+    <button class="btn block" id="packCopyBtn">复制分析包</button>
+    <textarea id="packText" readonly placeholder="点上面的按钮生成"></textarea>
+  </div>
 </details>
 
 <details class="tools" id="toolsBox">
@@ -883,33 +975,244 @@ function avgPerWeek(state, today) {
 return { totalRunMinutes, completedRunMinutes, checkinsInLastDays, distinctActiveDays, daysSinceStart, avgPerWeek };
 })();
 
+/* ===== src/runlog.js ===== */
+const __runlog = (() => {
+// 单次跑步的实际数据（从 Apple Watch / 健身 App 里抄过来的 7 项）。纯函数，有测试。
+//
+// 一条 run 的形状（每项都可以没有，没填就不出现）：
+//   { distKm, durationSec, avgHr, maxHr, cadence, rpe, note }
+//   distKm      距离，公里，两位小数
+//   durationSec 时长，秒
+//   avgHr/maxHr 平均 / 最高心率
+//   cadence     平均步频（步/分）
+//   rpe         体感 1–10（1 = 很轻松，10 = 拼尽全力）
+//   note        备注，最多 200 字
+//
+// 表单那一侧全是字符串（时长拆成「分」「秒」两个框，因为 iPhone 数字键盘没有冒号）。
+
+const NOTE_MAX = 200;
+
+// 全角数字 / 中文逗号句号 → 半角，再转数字。空串返回 undefined（= 没填）。
+function readNumber(s) {
+  const t = String(s ?? '')
+    .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+    .replace(/[，,。．]/g, '.')
+    .trim();
+  if (t === '') return undefined;
+  return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : NaN;
+}
+
+const inRange = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
+const isIntIn = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+
+// 每个字段的合法范围；表单校验和读存储共用一份。
+const RULES = {
+  distKm: { label: '距离', ok: (v) => inRange(v, 0.01, 60), hint: '0–60 公里' },
+  durationSec: { label: '时长', ok: (v) => isIntIn(v, 1, 36000), hint: '大于 0' },
+  avgHr: { label: '平均心率', ok: (v) => isIntIn(v, 40, 230), hint: '40–230 的整数' },
+  maxHr: { label: '最高心率', ok: (v) => isIntIn(v, 40, 230), hint: '40–230 的整数' },
+  cadence: { label: '步频', ok: (v) => isIntIn(v, 100, 250), hint: '100–250 的整数' },
+  rpe: { label: '体感', ok: (v) => isIntIn(v, 1, 10), hint: '1–10 的整数' },
+};
+function formToRun(form) {
+  const errors = [];
+  const run = {};
+
+  const take = (key, raw, transform = (v) => v) => {
+    const v = readNumber(raw);
+    if (v === undefined) return;
+    const val = transform(v);
+    if (RULES[key].ok(val)) run[key] = val;
+    else errors.push(`${RULES[key].label}填得不对（应为 ${RULES[key].hint}）`);
+  };
+
+  take('distKm', form.distKm, (v) => Math.round(v * 100) / 100);
+
+  const min = readNumber(form.durMin);
+  const sec = readNumber(form.durSec);
+  if (min !== undefined || sec !== undefined) {
+    if (min !== undefined && !isIntIn(min, 0, 600)) errors.push('时长的分钟填得不对（应为 0–600 的整数）');
+    else if (sec !== undefined && !isIntIn(sec, 0, 59)) errors.push('时长的秒填得不对（应为 0–59 的整数）');
+    else {
+      const total = (min ?? 0) * 60 + (sec ?? 0);
+      if (total > 0) run.durationSec = total;
+    }
+  }
+
+  take('avgHr', form.avgHr);
+  take('maxHr', form.maxHr);
+  if (run.avgHr !== undefined && run.maxHr !== undefined && run.maxHr < run.avgHr) {
+    errors.push('最高心率不能比平均心率还低');
+  }
+  take('cadence', form.cadence);
+  take('rpe', form.rpe);
+
+  const note = String(form.note ?? '').trim().slice(0, NOTE_MAX);
+  if (note) run.note = note;
+
+  if (errors.length) return { run: null, errors };
+  return { run: Object.keys(run).length ? run : null, errors: [] };
+}
+
+// 从存储 / 导入的备份里读回来时用：只留认识且合法的字段，一个都没有就是 null。
+function sanitizeRun(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const run = {};
+  for (const key of Object.keys(RULES)) {
+    if (RULES[key].ok(raw[key])) run[key] = raw[key];
+  }
+  if (run.maxHr !== undefined && run.avgHr !== undefined && run.maxHr < run.avgHr) delete run.maxHr;
+  if (typeof raw.note === 'string' && raw.note.trim()) run.note = raw.note.trim().slice(0, NOTE_MAX);
+  return Object.keys(run).length ? run : null;
+}
+
+// 编辑已有数据时回填表单。
+function runToForm(run) {
+  const r = run || {};
+  const str = (v) => (v === undefined ? '' : String(v));
+  return {
+    distKm: str(r.distKm),
+    durMin: r.durationSec === undefined ? '' : String(Math.floor(r.durationSec / 60)),
+    durSec: r.durationSec === undefined ? '' : String(r.durationSec % 60),
+    avgHr: str(r.avgHr),
+    maxHr: str(r.maxHr),
+    cadence: str(r.cadence),
+    rpe: str(r.rpe),
+    note: r.note ?? '',
+  };
+}
+function paceSecPerKm(run) {
+  if (!run || !run.distKm || !run.durationSec) return null;
+  return run.durationSec / run.distKm;
+}
+
+const pad2 = (n) => String(n).padStart(2, '0');
+function formatPace(sec) {
+  const s = Math.round(sec);
+  return `${Math.floor(s / 60)}'${pad2(s % 60)}"`;
+}
+function formatDuration(sec) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  return h ? `${h}:${pad2(m)}:${pad2(s)}` : `${m}:${pad2(s)}`;
+}
+
+// 一行摘要：「3.52 km · 26:10 · 配速 7'26"/km · 心率 148/162 · 步频 168 · 体感 4/10」
+function runSummary(run) {
+  if (!run) return '';
+  const parts = [];
+  if (run.distKm !== undefined) parts.push(`${run.distKm} km`);
+  if (run.durationSec !== undefined) parts.push(formatDuration(run.durationSec));
+  const pace = paceSecPerKm(run);
+  if (pace) parts.push(`配速 ${formatPace(pace)}/km`);
+  if (run.avgHr !== undefined && run.maxHr !== undefined) parts.push(`心率 ${run.avgHr}/${run.maxHr}`);
+  else if (run.avgHr !== undefined) parts.push(`平均心率 ${run.avgHr}`);
+  else if (run.maxHr !== undefined) parts.push(`最高心率 ${run.maxHr}`);
+  if (run.cadence !== undefined) parts.push(`步频 ${run.cadence}`);
+  if (run.rpe !== undefined) parts.push(`体感 ${run.rpe}/10`);
+  return parts.join(' · ');
+}
+
+return { readNumber, formToRun, sanitizeRun, runToForm, paceSecPerKm, formatPace, formatDuration, runSummary };
+})();
+
+/* ===== src/profile.js ===== */
+const __profile = (() => {
+// 个人基本信息（只填一次，生成分析包时带上）。纯函数，有测试。
+//
+// 形状（每项都可以没有）：
+//   { age, restHr, easyLow, easyHigh, maxHr, heightCm, weightKg, injuries }
+//   easyLow/easyHigh —— 轻松跑心率区间（用户按书里公式算的）
+//   maxHr            —— 实测最大心率，没测过就不填
+const { readNumber } = __runlog;
+const isIntIn = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+const inRange = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
+
+const RULES = {
+  age: { label: '年龄', ok: (v) => isIntIn(v, 10, 100), hint: '10–100 的整数' },
+  restHr: { label: '静息心率', ok: (v) => isIntIn(v, 30, 120), hint: '30–120 的整数' },
+  easyLow: { label: '区间下限', ok: (v) => isIntIn(v, 60, 230), hint: '60–230 的整数' },
+  easyHigh: { label: '区间上限', ok: (v) => isIntIn(v, 60, 230), hint: '60–230 的整数' },
+  maxHr: { label: '最大心率', ok: (v) => isIntIn(v, 100, 230), hint: '100–230 的整数' },
+  heightCm: { label: '身高', ok: (v) => inRange(v, 100, 250), hint: '100–250 厘米' },
+  weightKg: { label: '体重', ok: (v) => inRange(v, 25, 250), hint: '25–250 公斤' },
+};
+const NUM_KEYS = Object.keys(RULES);
+const TEXT_MAX = 200;
+
+const rangeFlipped = (p) => p.easyLow !== undefined && p.easyHigh !== undefined && p.easyLow >= p.easyHigh;
+function formToProfile(form) {
+  const errors = [];
+  const profile = {};
+  for (const key of NUM_KEYS) {
+    const v = readNumber(form[key]);
+    if (v === undefined) continue;
+    if (RULES[key].ok(v)) profile[key] = v;
+    else errors.push(`${RULES[key].label}填得不对（应为 ${RULES[key].hint}）`);
+  }
+  if (rangeFlipped(profile)) errors.push('轻松跑心率区间的下限要比上限小');
+  const injuries = String(form.injuries ?? '').trim().slice(0, TEXT_MAX);
+  if (injuries) profile.injuries = injuries;
+  return errors.length ? { profile: null, errors } : { profile, errors: [] };
+}
+function sanitizeProfile(raw) {
+  if (!raw || typeof raw !== 'object') return {};
+  const p = {};
+  for (const key of NUM_KEYS) if (RULES[key].ok(raw[key])) p[key] = raw[key];
+  if (rangeFlipped(p)) { delete p.easyLow; delete p.easyHigh; }
+  if (typeof raw.injuries === 'string' && raw.injuries.trim()) p.injuries = raw.injuries.trim().slice(0, TEXT_MAX);
+  return p;
+}
+function profileToForm(p) {
+  const form = {};
+  for (const key of NUM_KEYS) form[key] = p && p[key] !== undefined ? String(p[key]) : '';
+  form.injuries = (p && p.injuries) || '';
+  return form;
+}
+
+return { formToProfile, sanitizeProfile, profileToForm };
+})();
+
 /* ===== src/store.js ===== */
 const __store = (() => {
 // 打卡记录的存取。所有「会变的状态」都收在这里，
 // 通过一个注入的 storage（浏览器里是 localStorage，测试里是内存替身）落盘。
 //
-// 主数据很小：{ checkins: [{ seq, at }] }
-//   seq —— 计划里的第几次训练（1 起）
-//   at  —— 打卡日期 'YYYY-MM-DD'
+// 主数据很小：{ checkins: [{ seq, at, run? }], profile }
+//   seq     —— 计划里的第几次训练（1 起）
+//   at      —— 打卡日期 'YYYY-MM-DD'
+//   run     —— 这次的实际跑步数据（可选，形状见 runlog.js）
+//   profile —— 个人基本信息（形状见 profile.js），清空打卡时保留
 //
 // 另存一份「上次备份」的书签（设备本地，不进导出内容）：
 //   { at: 'YYYY-MM-DD' | null, count: number }
+const { sanitizeRun } = __runlog;
+const { sanitizeProfile } = __profile;
 const STORAGE_KEY = 'marathon-checkin-v1';
 const BACKUP_KEY = 'marathon-checkin-backup-v1';
 const EXPORT_VERSION = 1;
 
-const emptyState = () => ({ checkins: [] });
+const emptyState = () => ({ checkins: [], profile: {} });
 const emptyBackup = () => ({ at: null, count: 0 });
 
 function isValidCheckin(c) {
   return c && Number.isInteger(c.seq) && typeof c.at === 'string' && c.at.length > 0;
 }
 
+// 只留认识的字段；run 不合法就整个丢掉（打卡本身保留）。
+function cleanCheckin(c) {
+  const run = sanitizeRun(c.run);
+  return run ? { seq: c.seq, at: c.at, run } : { seq: c.seq, at: c.at };
+}
+
 // 从任意形状的备份对象里取出 checkins（兼容旧的裸 {checkins:[...]} 和新的带版本号的）。
 function extractCheckins(parsed) {
   if (!parsed || !Array.isArray(parsed.checkins)) return null;
-  return parsed.checkins.filter(isValidCheckin);
+  return parsed.checkins.filter(isValidCheckin).map(cleanCheckin);
 }
+
+const copyCheckin = (c) => (c.run ? { ...c, run: { ...c.run } } : { ...c });
 function createStore(storage) {
   let state = readState();
   let backup = readBackup();
@@ -918,8 +1221,9 @@ function createStore(storage) {
     try {
       const raw = storage.getItem(STORAGE_KEY);
       if (!raw) return emptyState();
-      const list = extractCheckins(JSON.parse(raw));
-      return list ? { checkins: list } : emptyState();
+      const parsed = JSON.parse(raw);
+      const list = extractCheckins(parsed);
+      return list ? { checkins: list, profile: sanitizeProfile(parsed.profile) } : emptyState();
     } catch {
       return emptyState();
     }
@@ -948,7 +1252,8 @@ function createStore(storage) {
 
   function snapshot() {
     return {
-      checkins: state.checkins.map((c) => ({ ...c })),
+      checkins: state.checkins.map(copyCheckin),
+      profile: { ...state.profile },
       backup: { ...backup },
     };
   }
@@ -976,8 +1281,27 @@ function createStore(storage) {
       return snapshot();
     },
 
+    // 给第 index 次打卡挂上 / 换掉跑步数据；run 为 null（或清洗后为空）就删掉。
+    setRun(index, run) {
+      const c = state.checkins[index];
+      if (c) {
+        const clean = sanitizeRun(run);
+        if (clean) c.run = clean;
+        else delete c.run;
+        persist();
+      }
+      return snapshot();
+    },
+
+    setProfile(profile) {
+      state.profile = sanitizeProfile(profile);
+      persist();
+      return snapshot();
+    },
+
+    // 清空打卡记录，但保留个人信息（那不是「打卡记录」）。
     reset() {
-      state = emptyState();
+      state = { ...emptyState(), profile: state.profile };
       persist();
       return snapshot();
     },
@@ -985,7 +1309,7 @@ function createStore(storage) {
     // 导出内容带上版本号和时间；不含设备本地的备份书签。
     exportJson() {
       return JSON.stringify(
-        { app: 'marathon-checkin', version: EXPORT_VERSION, exportedAt: new Date().toISOString(), checkins: state.checkins },
+        { app: 'marathon-checkin', version: EXPORT_VERSION, exportedAt: new Date().toISOString(), checkins: state.checkins, profile: state.profile },
         null,
         2,
       );
@@ -995,7 +1319,8 @@ function createStore(storage) {
       const parsed = JSON.parse(text); // 非 JSON 会在这里抛
       const list = extractCheckins(parsed);
       if (!list) throw new Error('备份格式不对：缺少 checkins 列表');
-      state = { checkins: list };
+      // 旧备份没有 profile：保留本机已有的
+      state = { checkins: list, profile: parsed.profile ? sanitizeProfile(parsed.profile) : state.profile };
       persist();
       return snapshot();
     },
@@ -1010,6 +1335,110 @@ function createStore(storage) {
 }
 
 return { STORAGE_KEY, BACKUP_KEY, EXPORT_VERSION, createStore };
+})();
+
+/* ===== src/analysis-pack.js ===== */
+const __analysis_pack = (() => {
+// 生成「分析包」：一段纯文本，把计划课表 + 实际跑步数据 + 个人信息 + 分析要求拼在一起，
+// 用户复制后粘贴给 Claude（可以再附几张健身 App 截图）。App 本身不做分析。纯函数，有测试。
+const { runSummary } = __runlog;
+const MS_PER_DAY = 86400000;
+const SCOPES = {
+  last: '最近 1 次',
+  recent4w: '最近 4 周',
+  all: '全部',
+};
+
+// 选出要放进分析包的打卡下标（按完成顺序，从早到晚）。
+function selectForPack(state, scope, today) {
+  const n = state.checkins.length;
+  if (n === 0) return [];
+  if (scope === 'last') return [n - 1];
+  const all = state.checkins.map((_, i) => i);
+  if (scope === 'recent4w') {
+    const t = new Date(today).getTime();
+    return all.filter((i) => (t - new Date(state.checkins[i].at).getTime()) / MS_PER_DAY < 28);
+  }
+  return all;
+}
+
+const isRunWalk = (s) => /正常走/.test(s.detail);
+
+function profileLines(p) {
+  const v = (x, unit = '') => (x === undefined ? '未填' : `${x}${unit}`);
+  const zone = p.easyLow !== undefined && p.easyHigh !== undefined ? `${p.easyLow}–${p.easyHigh}（按书里公式算的）` : '未填';
+  return [
+    `- 年龄：${p.age === undefined ? '未填' : `${p.age} 岁`}；身高：${v(p.heightCm, ' cm')}；体重：${v(p.weightKg, ' kg')}`,
+    `- 静息心率 ${v(p.restHr)}；轻松跑心率区间：${zone}`,
+    `- 最大心率：${p.maxHr === undefined ? '未实测' : p.maxHr}`,
+    `- 伤病史：${p.injuries || '未填'}`,
+  ];
+}
+function buildPack({ plan, state, profile = {}, scope = 'recent4w', today }) {
+  const done = state.checkins.length;
+  const next = done < plan.length ? plan[done] : null;
+  const picked = selectForPack(state, scope, today);
+  const out = [];
+
+  out.push('# 半马训练数据分析请求', '');
+  out.push('## 我的基本信息', ...profileLines(profile), '');
+
+  out.push('## 训练计划和进度');
+  out.push(`- 计划：得到 App 的 20 周半马训练计划，共 ${plan.length} 次课，按顺序完成，忙了就顺延（不按日历）`);
+  out.push(`- 进度：已完成 ${done} / ${plan.length} 次`);
+  if (next) out.push(`- 下一次：第 ${next.seq} 次 · 第 ${next.week} 周 · ${next.phase}${next.recovery ? '（减量/恢复周）' : ''} · ${next.detail}`);
+  else out.push(`- ${plan.length} 次已全部完成`);
+  out.push('- 数据来源：Apple Watch，从健身 App 抄录；每次课前有动态伸展、课后有静态拉伸（不计入数据）');
+  out.push('');
+
+  const withData = picked.filter((i) => state.checkins[i].run).length;
+  out.push(`## 训练记录（${SCOPES[scope] || scope}：共 ${picked.length} 次，其中 ${withData} 次有数据）`);
+  if (picked.length === 0) out.push('', '这个范围内没有打卡记录。');
+
+  let lastWeek = null;
+  for (const i of picked) {
+    const c = state.checkins[i];
+    const s = plan[i] || { seq: c.seq, week: null, phase: '', detail: '' };
+    if (s.week !== lastWeek) {
+      out.push('', `### 第 ${s.week} 周${s.recovery ? '（减量/恢复周）' : ''} · ${s.phase}`);
+      if (s.focus) out.push(`教练的话：${s.focus}`);
+      lastWeek = s.week;
+    }
+    out.push('', `**第 ${s.seq} 次 · ${c.at}**`);
+    out.push(`- 计划：${s.detail}${s.runMin ? `（计划跑 ${s.runMin} 分钟）` : ''}`);
+    if (c.run) {
+      const summary = runSummary(c.run);
+      const { note } = c.run;
+      if (summary) out.push(`- 实际：${summary}`);
+      if (note) out.push(`- 备注：${note}`);
+    } else {
+      out.push('- 实际：只打了卡，没有记录数据');
+    }
+  }
+  out.push('');
+
+  out.push('## 说明');
+  out.push('- 「体感」是 1–10 分的主观吃力程度（1 很轻松，10 拼尽全力）');
+  if (picked.some((i) => plan[i] && isRunWalk(plan[i]))) {
+    out.push('- 走跑结合的课，手表记录的平均心率和配速包含了走路的时间，比纯跑段要低/慢');
+  }
+  out.push('- 我可能会另外附上健身 App 截图（每公里分段配速、心率区间分布、心率曲线），请结合起来看');
+  out.push('');
+
+  out.push('## 请帮我分析');
+  out.push('1. 计划执行：实际做的和计划的差距（时长、走跑比例、心率是否在轻松跑区间、节奏跑/间歇跑强度是否到位）');
+  out.push('2. 趋势：跨周看，同样配速下心率有没有下降、恢复周有没有真的减量、体感有没有变轻松');
+  out.push('3. 风险信号：配速太快、心率太高、连续疲劳、受伤苗头');
+  out.push(next
+    ? `4. 下一次（第 ${next.seq} 次：${next.detail}）的 1–3 条具体建议`
+    : '4. 接下来恢复和保持状态的 1–3 条具体建议');
+  out.push('');
+  out.push('请用中文、少用术语，必须用术语时附一句解释。数据不够下结论的地方直接说，不要硬猜。');
+
+  return out.join('\n');
+}
+
+return { SCOPES, selectForPack, buildPack };
 })();
 
 /* ===== src/segments.js ===== */
@@ -1368,8 +1797,8 @@ const __version = (() => {
 // 每次改完前端代码、准备发布时，两件事一起做（缺一个 test/version.test.js 就会报红）：
 //   1. 这里的 VERSION 往上 +1、BUILT_AT 改成今天
 //   2. sw.js 里的 CACHE 常量也要跟着改成同一个数字（否则 Service Worker 不认为有更新）
-const VERSION = 'v7';
-const BUILT_AT = '2026-09-15';
+const VERSION = 'v8';
+const BUILT_AT = '2026-10-01';
 
 return { VERSION, BUILT_AT };
 })();
@@ -1392,6 +1821,9 @@ const { parseSession } = __segments;
 const { stateAt, formatClock, frameCues, elapsedFrom } = __timer;
 const { createBeeper } = __audio;
 const { VERSION, BUILT_AT } = __version;
+const { formToRun, runToForm, runSummary } = __runlog;
+const { formToProfile, profileToForm } = __profile;
+const { buildPack } = __analysis_pack;
 const store = createStore(window.localStorage);
 const $ = (id) => document.getElementById(id);
 const todayStr = () => new Date().toLocaleDateString('sv-SE'); // 'YYYY-MM-DD' 本地时区
@@ -1408,7 +1840,7 @@ function fmtShort(s) {
   return `${+m}/${+d}`;
 }
 
-const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 function toast(msg) {
   const t = $('toast');
@@ -1462,11 +1894,12 @@ function render() {
     $('ciBtn').onclick = () => {
       $('ciBtn').disabled = true; // 防手抖连点两下多打一次
       const at = $('ciDate').value || todayStr();
-      store.checkIn(nextSession(PLAN, store.get()).seq, at);
-      render();
-      toast('已打卡 ✓');
+      checkInAndAskForData(at);
     };
     if ($('undoBtn')) $('undoBtn').onclick = () => {
+      const all = store.get().checkins;
+      if (all[all.length - 1].run && !confirm('上一次打卡填过跑步数据，撤销会一起删掉。确定撤销？')) return;
+      closeRunForm();
       store.undoLast();
       render();
       toast('已撤销');
@@ -1542,12 +1975,156 @@ function renderRecent(state) {
     return;
   }
   card.hidden = false;
-  card.innerHTML = `<div class="next-head">最近完成</div>` + list.map((r) => `
-    <div class="rc">
-      <span class="rc-date">${fmtShort(r.at)}</span>
-      <span class="rc-txt">第 ${r.seq} 次 · 第 ${r.week} 周</span>
-      <span class="rc-detail">${esc(r.detail)}</span>
-    </div>`).join('');
+  // recentCheckins 最新在前：第 k 项对应 checkins[done - 1 - k]
+  const done = state.checkins.length;
+  card.innerHTML = `<div class="next-head">最近完成</div>` + list.map((r, k) => {
+    const index = done - 1 - k;
+    const run = state.checkins[index].run;
+    return `
+    <div class="rc-item">
+      <div class="rc">
+        <span class="rc-date">${fmtShort(r.at)}</span>
+        <span class="rc-txt">第 ${r.seq} 次 · 第 ${r.week} 周</span>
+        <span class="rc-detail">${esc(r.detail)}</span>
+        <button class="rc-edit" data-index="${index}">${run ? '改数据' : '填数据'}</button>
+      </div>
+      ${run ? `<div class="rc-run">${esc(runSummary(run))}${run.note ? ` · ${esc(run.note)}` : ''}</div>` : ''}
+    </div>`;
+  }).join('');
+  card.querySelectorAll('.rc-edit').forEach((b) => {
+    b.onclick = () => openRunForm(Number(b.dataset.index));
+  });
+}
+
+// ── 跑步数据表单（打卡后填，或在「最近完成」里补 / 改）────────────
+// 校验、换算在 src/runlog.js，有测试；这里只管 DOM。
+const RUN_FIELDS = [
+  ['distKm', '距离', 'decimal', '公里，如 3.52'],
+  ['durMin', '时长（分）', 'numeric', '分'],
+  ['durSec', '时长（秒）', 'numeric', '秒'],
+  ['avgHr', '平均心率', 'numeric', '次/分'],
+  ['maxHr', '最高心率', 'numeric', '次/分'],
+  ['cadence', '步频', 'numeric', '步/分'],
+  ['rpe', '体感 1–10', 'numeric', '1 轻松～10 极累'],
+];
+
+function checkInAndAskForData(at) {
+  store.checkIn(nextSession(PLAN, store.get()).seq, at);
+  render();
+  toast('已打卡 ✓');
+  openRunForm(store.get().checkins.length - 1, true);
+}
+
+function openRunForm(index, justCheckedIn = false) {
+  const c = store.get().checkins[index];
+  if (!c) return;
+  const s = PLAN[index] || { seq: c.seq, detail: '' };
+  const f = runToForm(c.run);
+  const card = $('runCard');
+  card.hidden = false;
+  card.innerHTML = `
+    <div class="t-head">
+      <span>${justCheckedIn ? '刚完成' : ''}第 ${s.seq} 次 · ${fmtShort(c.at)} · 跑步数据</span>
+      <button class="t-x" id="rfCloseBtn" aria-label="关闭">✕</button>
+    </div>
+    <div class="t-plan">${esc(s.detail)}</div>
+    <p class="muted-note">打开 iPhone「健身」App → 这次锻炼，照着抄。不知道的项空着就行${justCheckedIn ? '；现在没空，以后在「最近完成」里点「填数据」补' : ''}。</p>
+    <div class="form-grid">
+      ${RUN_FIELDS.map(([k, label, mode, ph]) => `
+        <label>${label}<input id="rf_${k}" inputmode="${mode}" placeholder="${ph}" value="${esc(f[k])}"></label>`).join('')}
+      <label class="wide">备注<input id="rf_note" placeholder="如：膝盖有点酸 / 天热 / 爬坡多" value="${esc(f.note)}"></label>
+    </div>
+    <p class="form-err" id="rfErr" hidden></p>
+    <div class="t-ctrls">
+      <button class="btn" id="rfSaveBtn">保存</button>
+      <button class="btn ghost" id="rfLaterBtn">${c.run ? '取消' : '稍后再填'}</button>
+    </div>
+    ${c.run ? '<button class="undo" id="rfDelBtn">删掉这次的数据</button>' : ''}
+  `;
+  $('rfCloseBtn').onclick = closeRunForm;
+  $('rfLaterBtn').onclick = closeRunForm;
+  $('rfSaveBtn').onclick = () => {
+    const form = { note: $('rf_note').value };
+    for (const [k] of RUN_FIELDS) form[k] = $('rf_' + k).value;
+    const { run, errors } = formToRun(form);
+    if (errors.length) {
+      $('rfErr').textContent = errors.join('；');
+      $('rfErr').hidden = false;
+      return;
+    }
+    store.setRun(index, run);
+    closeRunForm();
+    render();
+    toast(run ? '数据已保存 ✓' : '没填任何数据');
+  };
+  if ($('rfDelBtn')) $('rfDelBtn').onclick = () => {
+    if (!confirm('删掉这次的跑步数据？打卡本身保留。')) return;
+    store.setRun(index, null);
+    closeRunForm();
+    render();
+    toast('已删除数据');
+  };
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function closeRunForm() {
+  $('runCard').hidden = true;
+  $('runCard').innerHTML = '';
+}
+
+// ── 分析包 ──────────────────────────────
+// 拼文本的逻辑在 src/analysis-pack.js，有测试；这里只管表单和复制。
+const PROFILE_FIELDS = ['age', 'restHr', 'easyLow', 'easyHigh', 'maxHr', 'heightCm', 'weightKg', 'injuries'];
+let packScope = 'recent4w';
+
+function fillProfileForm() {
+  const f = profileToForm(store.get().profile);
+  for (const k of PROFILE_FIELDS) $('pf_' + k).value = f[k];
+  // 还没填过个人信息就默认展开，提醒先填
+  $('profileBox').open = Object.keys(store.get().profile).length === 0;
+}
+
+function paintScope() {
+  $('scopeRow').querySelectorAll('.chip').forEach((b) => b.classList.toggle('on', b.dataset.scope === packScope));
+}
+
+async function copyPack() {
+  const state = store.get();
+  if (state.checkins.length === 0) return toast('还没有打卡记录');
+  const text = buildPack({ plan: PLAN, state, profile: state.profile, scope: packScope, today: todayStr() });
+  const box = $('packText');
+  box.value = text;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('已复制，粘贴给 Claude 吧');
+  } catch {
+    box.focus();
+    box.select();
+    toast('已选中全文，请长按复制');
+  }
+}
+
+function wirePack() {
+  fillProfileForm();
+  paintScope();
+  $('pfSaveBtn').onclick = () => {
+    const form = {};
+    for (const k of PROFILE_FIELDS) form[k] = $('pf_' + k).value;
+    const { profile, errors } = formToProfile(form);
+    if (errors.length) {
+      $('pfErr').textContent = errors.join('；');
+      $('pfErr').hidden = false;
+      return;
+    }
+    $('pfErr').hidden = true;
+    store.setProfile(profile);
+    fillProfileForm();
+    toast('个人信息已保存 ✓');
+  };
+  $('scopeRow').querySelectorAll('.chip').forEach((b) => {
+    b.onclick = () => { packScope = b.dataset.scope; paintScope(); };
+  });
+  $('packCopyBtn').onclick = copyPack;
 }
 
 function renderWeeks(state) {
@@ -1844,11 +2421,8 @@ function wireTimerCtrls(finished) {
   on('tStartBtn', () => (T.startMs ? resumeClock() : startClock()));
   on('tPauseBtn', pauseClock);
   on('tCheckinBtn', () => {
-    const at = todayStr();
-    store.checkIn(nextSession(PLAN, store.get()).seq, at);
     closeTimer();
-    render();
-    toast('已打卡 ✓');
+    checkInAndAskForData(todayStr());
   });
   on('tAudioResumeBtn', () => {
     beeper.manualResume(); // 必须直接在这个点击回调里调用，靠这次真实手势把音频救回来
@@ -1884,6 +2458,8 @@ function wireTools() {
     if (!text) return toast('先把备份文本粘进上面的框');
     try {
       store.importJson(text);
+      closeRunForm();
+      fillProfileForm();
       render();
       toast('已导入备份');
     } catch (e) {
@@ -1892,6 +2468,7 @@ function wireTools() {
   };
   $('resetBtn').onclick = () => {
     if (confirm('确定清空所有打卡记录？建议先「保存备份」。')) {
+      closeRunForm();
       store.reset();
       render();
       toast('已清空');
@@ -1903,6 +2480,7 @@ function wireTools() {
 $('verFoot').textContent = `${VERSION} · ${BUILT_AT}`;
 render();
 wireTools();
+wirePack();
 
 
 </script>
