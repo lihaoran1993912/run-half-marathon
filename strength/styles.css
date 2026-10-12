@@ -515,7 +515,14 @@ textarea {
 .ex details ul { margin: 4px 0 0; padding-left: 18px; }
 .ex .knee { color: var(--clay-dark); }
 .rest-go { border: 1px solid var(--clay-soft); background: transparent; color: var(--clay); border-radius: 8px; padding: 6px 10px; font-size: 12.5px; font-weight: 600; cursor: pointer; margin-left: auto; }
-.cool { font-size: 12.5px; color: var(--ink-faint); margin: 4px 0 12px; }
+.cool { font-size: 13px; color: var(--ink-soft); margin: 4px 0 12px; }
+.cool-head { font-weight: 600; margin-bottom: 2px; }
+.sess-form { font-size: 13px; color: var(--ink-soft); border-top: 1px solid var(--line); padding-top: 10px; margin-bottom: 4px; }
+.sess-form .cool-head { margin-bottom: 8px; }
+.cool details { margin-top: 6px; }
+.cool summary { cursor: pointer; }
+.cool ul { margin: 4px 0 0; padding-left: 18px; font-size: 12.5px; }
+.cool .knee { color: var(--clay-dark); }
 .fold > summary { cursor: pointer; list-style: none; font-weight: 700; font-size: 15px; }
 .fold > summary::-webkit-details-marker { display: none; }
 .fold > summary::after { content: " ▾"; color: var(--ink-faint); }

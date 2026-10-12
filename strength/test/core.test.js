@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { levels, describeLevel, MAX_LEVEL, clampLevel } from '../src/gear.js';
-import { PLAN, EXERCISES, applyLegLite } from '../src/plan.js';
+import { PLAN, EXERCISES, COOLDOWN, applyLegLite } from '../src/plan.js';
 import { recommend, nextSession, percent, lastEntry, bests } from '../src/progress.js';
 import { proteinTarget, powderFor } from '../src/nutrition.js';
 
@@ -56,6 +56,15 @@ test('赛前最后一周没有任何下肢动作', () => {
   for (const s of PLAN.filter((s) => s.week === 16)) {
     assert.ok(s.items.length > 0);
     assert.ok(s.items.every((it) => EXERCISES[it.id].region !== 'leg'));
+  }
+});
+
+test('练完拉伸：每个都有名字、时长和至少 3 条做法（下拉里能看到怎么做）', () => {
+  assert.ok(Array.isArray(COOLDOWN) && COOLDOWN.length >= 4);
+  for (const c of COOLDOWN) {
+    assert.ok(c.name, '缺名字');
+    assert.ok(c.time, `${c.name} 缺时长`);
+    assert.ok(Array.isArray(c.cues) && c.cues.length >= 3, `${c.name} 做法太少`);
   }
 });
 

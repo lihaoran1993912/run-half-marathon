@@ -63,3 +63,16 @@ test('reset 清记录、保留设置；导出再导入原样恢复', () => {
   assert.equal(s.get().logs.length, 1);
   assert.throws(() => s.importJson('{"a":1}'));
 });
+
+test('感受：完成时一起存；之后可以补填、修改、删掉；坏数据被清掉', () => {
+  const storage = fakeStorage();
+  const s = createStore(storage);
+  s.finish({ seq: 1, at: '2026-10-12', items, session: { minutes: 40, rpe: 99, note: '累' } });
+  assert.deepEqual(createStore(storage).get().logs[0].session, { minutes: 40, note: '累' });
+  s.setSession(0, { painScore: 2, painArea: '左膝' });
+  assert.deepEqual(createStore(storage).get().logs[0].session, { painScore: 2, painArea: '左膝' });
+  s.setSession(0, null);
+  assert.equal(createStore(storage).get().logs[0].session, undefined);
+  s.setSession(5, { rpe: 3 }); // 不存在的下标，不崩
+  assert.equal(s.get().logs.length, 1);
+});

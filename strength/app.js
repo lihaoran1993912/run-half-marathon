@@ -6,6 +6,8 @@ import { nextSession, percent, recommend, bests } from './src/progress.js';
 import { createStore } from './src/store.js';
 import { proteinTarget, powderFor } from './src/nutrition.js';
 import { VERSION, BUILT_AT } from './src/version.js';
+import { formToSession, sessionToForm, sessionSummary, painText } from './src/session.js';
+import { buildPack, SCOPES } from './src/analysis-pack.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -74,7 +76,15 @@ function renderNext() {
       <span><b>明天有间歇 / 节奏 / 长距离跑</b>：下肢每个动作少做一组</span></label>` : ''}
     <details class="warm"><summary>先热身 5 分钟</summary><ol>${WARMUP.map((w) => `<li>${esc(w)}</li>`).join('')}</ol></details>
     <div id="exList">${exHtml}</div>
-    <p class="cool">${esc(COOLDOWN)}</p>
+    <div class="cool">
+      <div class="cool-head">练完拉伸 5 分钟</div>
+      ${COOLDOWN.map((c) => `<details><summary>${esc(c.name)} · ${esc(c.time)}</summary><ul>${c.cues.map((x) => `<li>${esc(x)}</li>`).join('')}${c.knee ? `<li class="knee">${esc(c.knee)}</li>` : ''}</ul></details>`).join('')}
+    </div>
+    <div class="sess-form">
+      <div class="cool-head">这次感受（可以空着，以后在「最近完成」里补）</div>
+      ${sessionFields(draft.sessionForm || sessionToForm(null), 'sf')}
+      <p class="form-err" id="sfErr" hidden></p>
+    </div>
     <button class="btn block" id="finishBtn">完成本次训练</button>
     ${logs.length ? '<button class="undo" id="undoBtn">↶ 撤销上一次</button>' : ''}`;
 }
@@ -107,6 +117,31 @@ function exerciseHtml(it, logs, s, saved) {
     </div>`;
 }
 
+// 「感受」表单：下一次训练卡片里和「最近完成」补填共用。校验在 src/session.js。
+const SESSION_FIELDS = [
+  ['minutes', '用时（分钟）', 'numeric', '热身到拉伸完'],
+  ['rpe', '体感 1–10', 'numeric', '1 轻松～10 极累'],
+  ['painScore', '疼痛 0–10', 'numeric', '不疼填 0'],
+];
+
+function sessionFields(f, prefix) {
+  return `<div class="form-grid">
+    ${SESSION_FIELDS.map(([k, label, mode, ph]) => `
+      <label>${label}<input id="${prefix}_${k}" class="sf" inputmode="${mode}" placeholder="${ph}" value="${esc(f[k])}"></label>`).join('')}
+    <label class="wide">疼痛部位 / 哪个动作疼<input id="${prefix}_painArea" class="sf" placeholder="如：左膝外侧，弓步下蹲时" value="${esc(f.painArea)}"></label>
+    <label class="wide">备注<input id="${prefix}_note" class="sf" placeholder="如：硬拉很累 / 没睡好" value="${esc(f.note)}"></label>
+  </div>`;
+}
+
+function readSessionForm(prefix) {
+  const form = {};
+  for (const k of ['minutes', 'rpe', 'painScore', 'painArea', 'note']) {
+    const el = $(`${prefix}_${k}`);
+    form[k] = el ? el.value : '';
+  }
+  return form;
+}
+
 // 从表单读出当前输入（草稿和完成时都用这个）。
 function readForm() {
   const items = {};
@@ -122,7 +157,7 @@ function readForm() {
     };
   });
   const lite = $('legLite');
-  return { items, legLite: !!(lite && lite.checked) };
+  return { items, legLite: !!(lite && lite.checked), sessionForm: readSessionForm('sf') };
 }
 
 function saveDraft() {
@@ -135,7 +170,14 @@ function finish() {
   const { logs } = store.get();
   const s = nextSession(logs);
   if (!s) return;
-  const { items, legLite } = readForm();
+  const { items, legLite, sessionForm } = readForm();
+  const { session, errors } = formToSession(sessionForm);
+  if (errors.length) {
+    $('sfErr').textContent = errors.join('；');
+    $('sfErr').hidden = false;
+    $('sfErr').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
   const clean = {};
   let empty = 0;
   for (const [id, e] of Object.entries(items)) {
@@ -145,7 +187,7 @@ function finish() {
   }
   if (!Object.keys(clean).length) return toast('先填一下每组实际做了几个');
   if (empty && !confirm(`还有 ${empty} 个动作没填次数，就这样完成吗？（没填的不记录）`)) return;
-  store.finish({ seq: s.seq, at: today(), items: clean, legLite });
+  store.finish({ seq: s.seq, at: today(), items: clean, legLite, session });
   stopRest();
   toast(`第 ${s.seq} 次完成 ✓`);
   render();
@@ -159,16 +201,23 @@ function renderRecent() {
   if (!logs.length) { card.hidden = true; return; }
   card.hidden = false;
   const h = handleKg();
-  const rows = logs.slice(-5).reverse().map((l) => {
+  const rows = logs.slice(-5).reverse().map((l, k) => {
+    const index = logs.length - 1 - k;
     const plan = PLAN[l.seq - 1];
+    const sum = sessionSummary(l.session);
+    const pain = l.session && l.session.painScore > 0 ? painText(l.session) : '';
+    const note = l.session && l.session.note;
     const detail = Object.entries(l.items).map(([id, e]) => {
       const ex = EXERCISES[id];
       const w = e.level == null ? '' : ` ${fmtKg(levels(h)[e.level].kg)}kg`;
       return `${ex.name.replace('（选做）', '')}${w} ${e.reps.join('/')}`;
     }).join('　');
     return `<div class="rc-item"><div class="rc"><span class="rc-date">${esc(l.at.slice(5))}</span>
-      <span class="rc-detail">第 ${l.seq} 次 · ${plan ? plan.kind : ''} 课${l.legLite ? ' · 腿部减量' : ''}</span></div>
-      <div class="lg">${esc(detail)}</div></div>`;
+      <span class="rc-detail">第 ${l.seq} 次 · ${plan ? plan.kind : ''} 课${l.legLite ? ' · 腿部减量' : ''}</span>
+      <button class="rc-edit" data-index="${index}">${l.session ? '改感受' : '填感受'}</button></div>
+      <div class="lg">${esc(detail)}</div>
+      ${sum || note ? `<div class="rc-run">${esc([sum, note].filter(Boolean).join(' · '))}</div>` : ''}
+      ${pain ? `<div class="rc-pain">疼痛：${esc(pain)}</div>` : ''}</div>`;
   }).join('');
 
   const b = bests(logs);
@@ -179,6 +228,74 @@ function renderRecent() {
   }).join('　');
   card.innerHTML = `<h2 style="font-size:15px;margin-bottom:6px">最近完成</h2>${rows}
     <p class="muted-note"><b>目前最好：</b>${esc(bestRows)}</p>`;
+  card.querySelectorAll('.rc-edit').forEach((b) => {
+    b.onclick = () => openSessionForm(Number(b.dataset.index));
+  });
+}
+
+// ── 补填 / 修改某次的感受 ──────────────────────────────────
+function openSessionForm(index) {
+  const l = store.get().logs[index];
+  if (!l) return;
+  const card = $('sessCard');
+  card.hidden = false;
+  card.innerHTML = `
+    <div class="t-head"><span>第 ${l.seq} 次 · ${esc(l.at.slice(5))} · 这次感受</span>
+      <button class="t-x" id="seCloseBtn" aria-label="关闭">✕</button></div>
+    ${sessionFields(sessionToForm(l.session), 'se')}
+    <p class="form-err" id="seErr" hidden></p>
+    <div class="t-ctrls">
+      <button class="btn" id="seSaveBtn">保存</button>
+      <button class="btn ghost" id="seCancelBtn">取消</button>
+    </div>
+    ${l.session ? '<button class="undo" id="seDelBtn">删掉这次的感受</button>' : ''}`;
+  const close = () => { card.hidden = true; card.innerHTML = ''; };
+  $('seCloseBtn').onclick = close;
+  $('seCancelBtn').onclick = close;
+  $('seSaveBtn').onclick = () => {
+    const { session, errors } = formToSession(readSessionForm('se'));
+    if (errors.length) {
+      $('seErr').textContent = errors.join('；');
+      $('seErr').hidden = false;
+      return;
+    }
+    store.setSession(index, session);
+    close();
+    render();
+    toast(session ? '感受已保存 ✓' : '没填任何内容');
+  };
+  if ($('seDelBtn')) $('seDelBtn').onclick = () => {
+    if (!confirm('删掉这次的感受？训练记录本身保留。')) return;
+    store.setSession(index, null);
+    close();
+    render();
+    toast('已删除');
+  };
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ── 分析包 ─────────────────────────────────────────────────
+// 拼文本的逻辑在 src/analysis-pack.js，有测试；这里只管选范围和复制。
+let packScope = 'recent4w';
+
+function paintScope() {
+  $('scopeRow').querySelectorAll('.chip').forEach((b) => b.classList.toggle('on', b.dataset.scope === packScope));
+}
+
+async function copyPack() {
+  const { logs, settings } = store.get();
+  if (!logs.length) return toast('还没有训练记录');
+  const text = buildPack({ logs, settings, scope: packScope, today: today() });
+  const box = $('packText');
+  box.value = text;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('已复制，粘贴给 Claude 吧');
+  } catch {
+    box.focus();
+    box.select();
+    toast('已选中全文，请长按复制');
+  }
 }
 
 // ── 蛋白粉 ─────────────────────────────────────────────────
@@ -338,7 +455,7 @@ $('nextCard').addEventListener('change', (e) => {
   saveDraft();
 });
 $('nextCard').addEventListener('input', (e) => {
-  if (e.target.classList.contains('rep')) saveDraft();
+  if (e.target.classList.contains('rep') || e.target.classList.contains('sf')) saveDraft();
 });
 
 $('restPlus').addEventListener('click', () => {
@@ -394,6 +511,16 @@ $('resetBtn').addEventListener('click', () => {
   render();
   toast('已清空');
 });
+
+$('scopeRow').innerHTML = '范围：' + Object.entries(SCOPES).map(([k, v]) => `<button class="chip" data-scope="${k}">${v}</button>`).join('');
+$('scopeRow').addEventListener('click', (e) => {
+  const b = e.target.closest('.chip');
+  if (!b) return;
+  packScope = b.dataset.scope;
+  paintScope();
+});
+paintScope();
+$('packCopyBtn').addEventListener('click', copyPack);
 
 $('verFoot').textContent = `${VERSION} · ${BUILT_AT}`;
 renderSettings();

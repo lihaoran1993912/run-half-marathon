@@ -28,6 +28,18 @@
 
 <section class="card" id="recentCard" hidden></section>
 
+<section class="card" id="sessCard" hidden></section>
+
+<details class="card pack">
+  <summary>📋 生成分析包（发给 Claude）</summary>
+  <div class="tools-body">
+    <p>把计划、每个动作的重量和次数、感受和疼痛拼成一段文字。复制后粘贴给 Claude，让它帮你看重量合不合适、有没有练太累。</p>
+    <div class="scope-row" id="scopeRow"></div>
+    <button class="btn block" id="packCopyBtn">生成并复制</button>
+    <textarea id="packText" readonly placeholder="点上面的按钮，分析包会出现在这里"></textarea>
+  </div>
+</details>
+
 <details class="card fold">
   <summary>🏃 怎么跟跑步搭配（必读）</summary>
   <ul class="rules">

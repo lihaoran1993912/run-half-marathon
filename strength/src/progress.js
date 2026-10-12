@@ -2,7 +2,8 @@
 //
 // 一次训练记录 log 的形状（store.js 负责存）：
 //   { seq, at: 'YYYY-MM-DD', legLite?: true,
-//     items: { [动作id]: { level: number|null, reps: [每组做了几个], rir: number|null } } }
+//     items: { [动作id]: { level: number|null, reps: [每组做了几个], rir: number|null } },
+//     session?: { minutes, rpe, painScore, painArea, note } }   感受，见 session.js
 //   徒手动作 level 为 null；计时动作 reps 里存的是秒数。
 
 import { EXERCISES, PLAN } from './plan.js';

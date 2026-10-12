@@ -1,10 +1,11 @@
 // 训练记录的存取，通过注入的 storage 落盘（浏览器里是 localStorage，测试里是内存替身）。
 //
 // 主数据：{ logs: [log...], settings: { handleKg, bodyKg } }   log 的形状见 progress.js
-// 草稿（练到一半的输入，刷新 / 切出去不丢）：{ seq, legLite, items }
+// 草稿（练到一半的输入，刷新 / 切出去不丢）：{ seq, legLite, items, sessionForm }
 
 import { EXERCISES } from './plan.js';
 import { clampLevel } from './gear.js';
+import { sanitizeSession } from './session.js';
 
 export const STORAGE_KEY = 'dumbbell-strength-v1';
 export const DRAFT_KEY = 'dumbbell-strength-draft-v1';
@@ -45,6 +46,8 @@ function cleanLog(l) {
   if (!l || !Number.isInteger(l.seq) || typeof l.at !== 'string' || !l.at) return null;
   const log = { seq: l.seq, at: l.at, items: sanitizeItems(l.items) };
   if (l.legLite === true) log.legLite = true;
+  const session = sanitizeSession(l.session);
+  if (session) log.session = session;
   return log;
 }
 
@@ -97,15 +100,26 @@ export function createStore(storage) {
     get: snapshot,
 
     // 完成一次训练。seq 必须正好是下一次（防止连点两下记成两次）。
-    finish({ seq, at, items, legLite }) {
+    finish({ seq, at, items, legLite, session }) {
       if (seq !== state.logs.length + 1) return snapshot();
-      const log = cleanLog({ seq, at, items, legLite });
+      const log = cleanLog({ seq, at, items, legLite, session });
       if (log) {
         state.logs.push(log);
         persist();
         draft = null;
         persistDraft();
       }
+      return snapshot();
+    },
+
+    // 补填 / 修改 / 删掉（null）某次训练的感受。
+    setSession(index, session) {
+      const log = state.logs[index];
+      if (!log) return snapshot();
+      const clean = sanitizeSession(session);
+      if (clean) log.session = clean;
+      else delete log.session;
+      persist();
       return snapshot();
     },
 
