@@ -1,0 +1,17 @@
+{
+  "name": "哑铃力量 · 配合半马",
+  "short_name": "哑铃力量",
+  "description": "配合半马的哑铃力量训练：16 周 / 32 次，按顺序做，忙了顺延。",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f5f6f8",
+  "theme_color": "#2f6fb0",
+  "icons": [
+    { "src": "icons/apple-touch-icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

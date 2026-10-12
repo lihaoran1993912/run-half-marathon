@@ -1,0 +1,11 @@
+{
+  "name": "dumbbell-strength",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "哑铃力量训练 —— 配合半马，16 周 / 32 次，按顺序做，忙了顺延。",
+  "scripts": {
+    "test": "node --test",
+    "serve": "node serve.js"
+  }
+}
