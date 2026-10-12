@@ -9,6 +9,7 @@ import { sanitizeSession } from './session.js';
 
 export const STORAGE_KEY = 'dumbbell-strength-v1';
 export const DRAFT_KEY = 'dumbbell-strength-draft-v1';
+export const BACKUP_KEY = 'dumbbell-strength-backup-v1'; // 上次备份：{ at, count }
 
 const emptyState = () => ({ logs: [], settings: {} });
 
@@ -61,6 +62,7 @@ const copyLog = (l) => JSON.parse(JSON.stringify(l));
 export function createStore(storage) {
   let state = read();
   let draft = readDraft();
+  let backup = readBackup();
 
   function read() {
     try {
@@ -84,6 +86,18 @@ export function createStore(storage) {
     }
   }
 
+  function readBackup() {
+    try {
+      const b = JSON.parse(storage.getItem(BACKUP_KEY) || 'null');
+      if (b && typeof b.at === 'string' && Number.isInteger(b.count) && b.count >= 0) return { at: b.at, count: b.count };
+    } catch { /* 当成没备份过 */ }
+    return { at: null, count: 0 };
+  }
+
+  function persistBackup() {
+    try { storage.setItem(BACKUP_KEY, JSON.stringify(backup)); } catch { /* 同下 */ }
+  }
+
   function persist() {
     try { storage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* 写满 / 隐私模式：内存里还在 */ }
   }
@@ -94,7 +108,7 @@ export function createStore(storage) {
     } catch { /* 同上 */ }
   }
 
-  const snapshot = () => ({ logs: state.logs.map(copyLog), settings: { ...state.settings } });
+  const snapshot = () => ({ logs: state.logs.map(copyLog), settings: { ...state.settings }, backup: { ...backup } });
 
   return {
     get: snapshot,
@@ -147,12 +161,21 @@ export function createStore(storage) {
       persistDraft();
     },
 
+    // 保存备份成功后记一笔，用来判断该不该提醒。
+    markBackedUp(at) {
+      backup = { at, count: state.logs.length };
+      persistBackup();
+      return snapshot();
+    },
+
     // 清空记录，保留设置。
     reset() {
       state = { logs: [], settings: state.settings };
       draft = null;
+      backup = { at: null, count: 0 };
       persist();
       persistDraft();
+      persistBackup();
       return snapshot();
     },
 

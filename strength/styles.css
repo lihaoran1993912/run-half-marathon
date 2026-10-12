@@ -87,6 +87,9 @@ a { color: var(--clay); }
 }
 .bar-label b { color: var(--ink); font-variant-numeric: tabular-nums; }
 
+/* hidden 属性一律隐藏：不然 .nudge 这类写了 display:flex 的元素会把 hidden 盖掉、一直显示 */
+[hidden] { display: none !important; }
+
 /* ── 备份提醒条 ───────────────────────── */
 .nudge {
   display: flex;

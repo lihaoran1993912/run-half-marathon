@@ -15,6 +15,7 @@ const ASSETS = [
   './src/nutrition.js',
   './src/session.js',
   './src/analysis-pack.js',
+  './src/backup.js',
   './src/version.js',
   './icons/apple-touch-icon-180.png',
   './icons/icon-512.png',

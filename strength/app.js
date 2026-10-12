@@ -8,6 +8,7 @@ import { proteinTarget, powderFor } from './src/nutrition.js';
 import { VERSION, BUILT_AT } from './src/version.js';
 import { formToSession, sessionToForm, sessionSummary, painText } from './src/session.js';
 import { buildPack, SCOPES } from './src/analysis-pack.js';
+import { backupDue } from './src/backup.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -355,8 +356,18 @@ function renderSettings() {
   $('st_body').value = st.bodyKg ?? '';
 }
 
+function renderBackup() {
+  const st = store.get();
+  const b = st.backup;
+  $('backupStatus').textContent = b.at ? `上次备份：${b.at}（当时 ${b.count} 次）` : '还没备份过';
+  const due = backupDue(st, today());
+  $('backupNudge').hidden = !due.due;
+  if (due.due) $('backupNudgeText').textContent = `有 ${due.pending} 次训练还没备份，存一份免得丢`;
+}
+
 function render() {
   renderHeader();
+  renderBackup();
   renderNext();
   renderRecent();
   renderFood();
@@ -472,24 +483,35 @@ $('stSaveBtn').addEventListener('click', () => {
   toast('设置已保存 ✓');
 });
 
-$('saveBtn').addEventListener('click', async () => {
+// 打开分享面板保存备份；不支持分享就退回复制 / 选中。成功后记下备份书签。
+async function saveBackup() {
   const text = store.exportJson();
   $('backupBox').value = text;
   try {
     if (navigator.share) {
       await navigator.share({ title: '哑铃力量备份', text });
-      return toast('已发起保存');
+      toast('已发起保存');
+    } else {
+      throw new Error('no share');
     }
   } catch (err) {
-    if (err && err.name === 'AbortError') return;
+    if (err && err.name === 'AbortError') return; // 取消了，不算备份
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('已复制备份文本，粘到备忘录里存好');
+    } catch {
+      $('backupBox').select();
+      toast('已选中备份文本，请长按复制保存');
+    }
   }
-  try {
-    await navigator.clipboard.writeText(text);
-    toast('已复制备份文本，粘到备忘录里存好');
-  } catch {
-    $('backupBox').select();
-    toast('已选中备份文本，请长按复制保存');
-  }
+  store.markBackedUp(today());
+  renderBackup();
+}
+
+$('saveBtn').addEventListener('click', saveBackup);
+$('backupNudgeBtn').addEventListener('click', () => {
+  $('backupBox2').open = true;
+  saveBackup();
 });
 
 $('importBtn').addEventListener('click', () => {

@@ -76,3 +76,14 @@ test('感受：完成时一起存；之后可以补填、修改、删掉；坏�
   s.setSession(5, { rpe: 3 }); // 不存在的下标，不崩
   assert.equal(s.get().logs.length, 1);
 });
+
+test('备份书签：记下日期和当时的次数，刷新后还在；清空记录后书签也清掉', () => {
+  const storage = fakeStorage();
+  const s = createStore(storage);
+  assert.deepEqual(s.get().backup, { at: null, count: 0 });
+  s.finish({ seq: 1, at: '2026-10-12', items });
+  s.markBackedUp('2026-10-12');
+  assert.deepEqual(createStore(storage).get().backup, { at: '2026-10-12', count: 1 });
+  s.reset();
+  assert.deepEqual(createStore(storage).get().backup, { at: null, count: 0 });
+});
